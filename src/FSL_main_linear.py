@@ -29,8 +29,8 @@ DEVICE = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 class Client():
     def __init__(self, id, train_loader, c_args):
         if c_args['dataset'] == "cifar":
-            self.model = model.Client_model_cifar() 
-            self.auxiliary_model = model.Auxiliary_model_cifar()
+            self.model = model_linear.Client_model_cifar() 
+            self.auxiliary_model = model_linear.Auxiliary_model_cifar()
         else:
             raise Exception("Only CIFAR is supported for now")
         # elif c_args['dataset'] == "femnist":
@@ -48,7 +48,7 @@ class Client():
 class Server():
     def __init__(self, c_args):
         if c_args['dataset'] == "cifar":
-            self.model = model.Server_model_cifar()
+            self.model = model_linear.Server_model_cifar()
         else:
             raise Exception("Only CIFAR is supported for now")
         # elif c_args['dataset'] == "femnist":
@@ -91,7 +91,6 @@ if __name__ == '__main__':
     trainSet, testSet = utils.get_dataset(s_args, u_args) 
     client_train_set, client_test_set = utils.depart_dataset(u_args, s_args, trainSet, testSet)
 
-    
     trainLoader_list = []
     for i in range(s_args["activated"]):
         train_set = client_train_set[i]["idxs"]
@@ -137,14 +136,50 @@ if __name__ == '__main__':
     acc_list = []
     loss_list = []
     comm_load_list = []
-    save_server_grads = []
-    save_local_grads = [[] for _ in range(s_args["activated"]) ]
     start = time.time()
     comm_load = 0
     batch_max_round = total // c_args["batch_size"] // s_args["activated"]
     
+    # TODO: Right now the code assumes activated clients = total number of clients.
+    # May need to change this later
+    # These save the server and client gradients need for alignment
+    # Note that server must also store grads w.r.t. to client data
+    save_server_grads = [ torch.empty(0, 2304).to(DEVICE) for _ in range(s_args["activated"]) ]
+    save_smashed_input = [ torch.empty(0, 2304).to(DEVICE) for _ in range(s_args["activated"]) ]
+
     while r < s_args["round"]:
-        # Send data samples to each client
+        # r + 1 is b/c indexing by 0
+        # so 1st, 2nd, 3rd, 4th instead of 0th, 1st, 2nd, 3rd, ...
+        # Alignment then happens every lth term instead of every (l-1)th and 0th term
+        if r != 0 and (r + 1) % l == 0:
+            # TODO: Store the previous gradients (somewhere)
+            # TODO: Calculate the analytic solution for solving the linear model   
+            for client_i in range(s_args['activated']):
+                # Calculate the analytical solution for W
+                # The formula below is the analytical solution of linear regression 
+                # with regularization term to handle when X is nonintvertible
+                lambda_reg = 1e-5  # Regularization parameter, adjust as needed
+                X = save_smashed_input[client_i] # Martix of (N, D) size
+                Y = save_server_grads[client_i]  # Matrix of (N, C) size (here C = D since grad same dimension)
+                # Compute (X^T X + λI)
+                XtX = X.T @ X
+                I = torch.eye(XtX.shape[0]).to(DEVICE)  # Identity matrix with shape (D, D)
+                XtX_inv = torch.inverse(XtX + lambda_reg * I)  # Inverse of (X^T X + λI)
+
+                # Calculate W = (X^T X + λI)^(-1) X^T Y
+                W = XtX_inv @ X.T @ Y
+                client_copy_list[client_i].auxiliary_model.weight = \
+                    nn.Parameter(W).to(DEVICE)
+             # Store the accumulated gradient per round
+            # Note that this must be stored seperately because we need the gradients per client in order to tune the aux model, but 
+            # we need the acc gradient to train the server.
+            save_server_grads = [ torch.empty(0, 2304).to(DEVICE) for _ in range(s_args["activated"]) ]
+            save_smashed_input = [ torch.empty(0, 2304).to(DEVICE) for _ in range(s_args["activated"]) ]
+
+            # Complete the forward pass on the server-side for all the acc gradients
+            server.optimizer.step()
+            server.optimizer.zero_grad()
+
         it_list = []
         for i in range(s_args["activated"]):
             it_list.append(iter(trainLoader_list[i]))
@@ -153,12 +188,29 @@ if __name__ == '__main__':
         client_i = 0
         start_index = 0
 
-        # Loop through either all activated clients or the batches distributed
-        # (whichever comes first)
+        # This is a bit complicated, but basically:
+        #   batch_round - the number of local rounds a client will train on its dataset, per 
+        #       client cycle. Each local round it trains on a batch of local data, hence batch_round
+        #   batch_max_round - the maximum possible number of batch rounds a client can take. 
+        #       This serves as a limit to the total num of batch-rounds a client will do per 
+        #       global round (i think). 
+        #   start_index - the index of the batch the client will start on. Increases by 
+        #        batch_round every time all clients have been cycled through.
+        #   max_batch - start_index + batch_round. This is used to keep track of when to stop
+        #       training for a given client.
+        #   client_i - index of the client currently undergoing training
+        #   client_batch_index - current index of the batch, for the given client training.
+        #       Used to keep track of what batch the client is currently on (NOTE THAT THIS
+        #       IS CULMATIVE ACROSS CLIENT CYCLES / LOCAL ROUNDS!)
+        # So the loop below will cycle through local batch_rounds for each client, and will stop
+        # as soon as equal to or more than batch_max_roudns would be executed.
+        # Not entirely sure why the second condition is needed in this loop since the client_i
+        # always resets to 0 once all clients are passed.
         while max_batch <= batch_max_round and client_i < s_args["activated"]: 
             client_batch_index = start_index
             while client_batch_index < batch_max_round and client_batch_index < max_batch: 
-                # For a given client, iterate through the samples it needs to train on and send it to device
+                # For a given client, iterate through the samples it needs to train on
+                # TODO: Store last samples on device for training.
                 samples, labels = next(it_list[client_i])
                 client_copy_list[client_i].optimizer.zero_grad()
                 samples, labels = samples.to(DEVICE).float(), labels.to(DEVICE).long()
@@ -168,72 +220,37 @@ if __name__ == '__main__':
                 local_smashed_data = splitting_output.clone().detach().requires_grad_(True)
                 smashed_data = splitting_output.clone().detach().requires_grad_(True)
 
-                # server feedforward, calculate loss, backpropagation and update server-side model weights 
-                if client_batch_index == max_batch - 1 and r != 0 and r % l == 0:
+                # (r + 1) is to shift 0th, 1st, 2nd rounds to 1st, 2nd, 3rd, ...
+                # (r + 1) + 1 is to get the last grads before alignment
+                if client_batch_index == max_batch - 1 and ((r + 1) + 1) % l == 0:
                     comm_load += smashed_data.numel() * 4   # float32 = 4 bytes
                     output = server.model(smashed_data) 
                     loss = server.criterion(output, labels)
-                    loss = loss / s_args["activated"]
-
                     loss.backward()
                     client_batch_index += 1
-
-                    break
-
-                    # # Run the sample through the auxilary model again and get the auxilary gradients
-                    # client_copy_list[client_i].auxiliary_optimizer.zero_grad()
-                    # aux_Out = client_copy_list[client_i].auxiliary_model(smashed_clone1) 
-                    
-                    # # Get gradients of auxilary model for the cut layer
-                    # aux_Gradients = autograd.grad(outputs = aux_Out, inputs = smashed_clone1, 
-                    #     grad_outputs=torch.ones(aux_Out.size()).to(DEVICE), 
-                    #     create_graph=True, retain_graph=True)[0]
-                    
-                    # # Run the sample through the server model to get desired server gradients
-                    # server.optimizer.zero_grad()
-                    # server_Out = server.model(smashed_clone2) 
-                    
-                    # # Get gradients of server for the cut layer
-                    # server_Gradients = autograd.grad(outputs = server_Out, inputs = smashed_clone2, 
-                    #     grad_outputs = torch.ones(server_Out.size()).to(DEVICE))[0]
-                    
-                    # # Define a criterion to minimize the square difference of gradients at the cut layer
-                    # grad_MSE = torch.nn.MSELoss()
-
-                    # # Set up the loss function 
-                    # grad_Loss = grad_MSE(aux_Gradients, server_Gradients)
-                    
-                    # # Calculate the gradients with respect to model weights 
-                    # # (In this case, we only need to find these for the auxilary model
-                    # # since we don't update the server during alignment
-                    # grad_Loss.backward()
-                    
-                    # # Update auxilary model
-                    # client_copy_list[client_i].auxiliary_optimizer.step()
-
-                    # # Doesn't do anything but zero_grad is to prevent weird bugs that might show up
-                    # server.optimizer.zero_grad()
-
-                
-                # client calculates the local loss and do the backpropagation and update auxiliary model weights
-                client_copy_list[client_i].auxiliary_optimizer.zero_grad()
-                local_output = client_copy_list[client_i].auxiliary_model(local_smashed_data) 
-                local_loss = client_copy_list[client_i].auxiliary_criterion(local_output, labels)
-                local_loss.backward()  
-
-                # client_copy_list[client_i].auxiliary_optimizer.step()
+                    save_server_grads[client_i] = torch.cat((save_server_grads[client_i], smashed_data.grad.clone().detach()), dim = 0)
+                    save_smashed_input[client_i] = torch.cat((save_smashed_input[client_i], local_smashed_data.clone().detach()), dim = 0)
+                    # print(smashed_data.grad.size())
+                    # print(client_grad_approx)
+                    # print(smashed_data)
 
                 # client backpropagation and update client-side model weights
                 # TODO: Sanity check to make sure the gradients here actually correspond to what I think it does
                 # (e.g., that local_loss.backward() derives the gradients)
-                gradient = local_smashed_data.grad
-                splitting_output.backward(gradient)
-                client_copy_list[client_i].optimizer.step() 
-
-                # Do not update the aux model, so clean grads
+                # gradient = local_smashed_data.grad
+                # client calculates the local loss and do the backpropagation and update auxiliary model weights
                 client_copy_list[client_i].auxiliary_optimizer.zero_grad()
+                client_grad_approx = client_copy_list[client_i].auxiliary_model(local_smashed_data) 
+
+                splitting_output.backward(client_grad_approx)
+                client_copy_list[client_i].optimizer.step() 
         
                 client_batch_index += 1
+
+                    #     save_server_grads[client_i] = torch.cat((save_server_grads[client_i], smashed_data.grad.clone().detach()), dim = 0)
+                    #     print(smashed_data.grad.clone().detach().size())
+                    #     print(save_server_grads[client_i].size())
+
             
             if client_i == s_args["activated"] - 1:
                 client_i = 0
@@ -241,14 +258,7 @@ if __name__ == '__main__':
                 max_batch += batch_round
             else:
                 client_i += 1
-   
-           
-        if r != 0 and r % l == 0:
-            server.optimizer.step()  
-            # TODO: Store the previous gradients (somewhere)
-            # TODO: Calculate the analytic solution for solving the linear model       
 
-            server.optimizer.zero_grad()
         # ===========================================================================================
         # Model Aggregation (weighted)
         # ===========================================================================================

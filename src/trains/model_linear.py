@@ -35,12 +35,16 @@ class Client_model_cifar(nn.Module):
 class Auxiliary_model_cifar(nn.Module):
     def __init__(self):
         super(Auxiliary_model_cifar, self).__init__()
-        self.fc = nn.Linear(in_features=6 * 6 * 64, out_features=10)        
+        self.fc = nn.Linear(in_features=6 * 6 * 64, out_features=2304) # Estimator of the gradients   
 
     def forward(self, x):
-        x = self.fc(x)
+        # print("AUX MODEL WEIGHT SHAPE")
+        # print(x.size())
+        # print(self.fc.weight.size())
+        with torch.no_grad():
+            grad_estimate = torch.matmul(x, self.fc.weight)
     
-        return x
+        return grad_estimate
  
  # Server-side Model
 class Server_model_cifar(nn.Module):
