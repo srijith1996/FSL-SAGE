@@ -37,6 +37,9 @@ class Auxiliary_model_cifar(nn.Module):
         super(Auxiliary_model_cifar, self).__init__()
         self.fc = nn.Linear(in_features=6 * 6 * 64, out_features=2304) # Estimator of the gradients   
 
+    def set_weight(self, W):
+        self.fc.weight.data = nn.Parameter(W)
+
     def forward(self, x):
         # print("AUX MODEL WEIGHT SHAPE")
         # print(x.size())

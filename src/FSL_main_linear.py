@@ -151,6 +151,12 @@ if __name__ == '__main__':
     save_smashed_input = [ torch.empty(0, 2304).to(DEVICE) for _ in range(s_args["activated"]) ]
     save_labels = [ torch.empty(0).to(DEVICE) for _ in range(s_args['activated']) ]
 
+    def print_grad_mse(true_grad, approx_grad, client_i, pre=''):
+        assert approx_grad.shape == true_grad.shape
+        with torch.no_grad():
+            mse_grad = torch.nn.functional.mse_loss(true_grad, approx_grad) / c_args["batch_size"]
+            print(f"{pre}NMSE of aux model @ round {r:2d}, client {client_i:2d}, batch index {client_batch_index:2d}: {mse_grad:0.3e}")
+
     while r < s_args["round"]:
         # r + 1 is b/c indexing by 0
         # so 1st, 2nd, 3rd, 4th instead of 0th, 1st, 2nd, 3rd, ...
@@ -234,18 +240,22 @@ if __name__ == '__main__':
                 # client feedforward
                 splitting_output = client_copy_list[client_i].model(samples)
                 local_smashed_data = splitting_output.clone().detach().requires_grad_(True)
-                smashed_data = splitting_output.clone().detach().requires_grad_(True)
 
                 # (r + 1) is to shift 0th, 1st, 2nd rounds to 1st, 2nd, 3rd, ...
                 # (r + 1) + 1 is to get the last grads before alignment
                 if client_batch_index == max_batch - 1 and ((r + 1) + 1) % l == 0:
+
+                    # Pass smashed data through the server model to update the server model
+                    smashed_data = splitting_output.clone().detach().requires_grad_(True)
                     comm_load += smashed_data.numel() * 4   # float32 = 4 bytes
+
                     output = server.model(smashed_data) 
                     loss = server.criterion(output, labels)
                     loss.backward()
                     server.optimizer.step()
                     server.optimizer.zero_grad()
-                    client_batch_index += 1
+
+                    #client_batch_index += 1
 
                     # ---------------------------------------------------------------------------------------------------------------------
                     # Srijith: Perhaps here we need to recompute and save gradients everytime the server-side model changes
@@ -255,22 +265,29 @@ if __name__ == '__main__':
 
                     # Srijith: Run all previous smashed inputs through the server-side model
                     #print(save_smashed_input[client_i])
+                    #start_time_serv = time.time()
                     all_ins = save_smashed_input[client_i].clone().detach().requires_grad_(True)
                     all_out = server.model(all_ins)
                     all_loss = server.criterion(all_out, save_labels[client_i])
                     all_loss.backward()
                     save_server_grads[client_i] = all_ins.grad.clone().detach()
                     server.optimizer.zero_grad()
+                    #print(f"  -- [Client {client_i:2d}, Round {r:2d}, Batch {client_batch_index:2d}] Time to recompute server grads: {time.time() - start_time_serv:.2e}s")
 
-                    # Calculate the analytical solution for W
-                    # The formula below is the analytical solution of linear regression 
-                    # with regularization term to handle when X is nonintvertible
+                    # Debug the newly computed grad approximation
+                    if False:
+                        with torch.no_grad():
+                            approx_grad = client_copy_list[client_i].auxiliary_model(local_smashed_data).clone().detach()
+                            true_grad = save_server_grads[client_i][-c_args["batch_size"]:].clone().detach()
+                            print_grad_mse(true_grad, approx_grad, client_i, "[Before alignment] ")
+
+                    # ------------------------------------------------------------------------------------------------
                     lambda_reg = 1e-5  # Regularization parameter, adjust as needed
                     X = save_smashed_input[client_i] # Martix of (N, D) size
                     Y = save_server_grads[client_i]  # Matrix of (N, C) size (here C = D since grad same dimension)
 
-                    # ------------------------------------------------------------------------------------------------
                     # Srijith: Compute (X^T X + N λ I) where N is the number of data points in X and Y
+                    #start_time_align = time.time()
                     XtX = X.T @ X
                     XtX = XtX + X.shape[0] * lambda_reg * torch.eye(XtX.shape[0]).to(DEVICE)
 
@@ -278,42 +295,29 @@ if __name__ == '__main__':
                     # Srijith: The left=False solves for WA = B rather than AW = B, which is what we want
                     W = torch.linalg.solve(XtX, Y.T @ X, left=False)
 
-                    # Compute (X^T X + λI)
-                    #XtX = X.T @ X
-                    #I = torch.eye(XtX.shape[0]).to(DEVICE)  # Identity matrix with shape (D, D)
-                    #XtX_inv = torch.inverse(XtX + lambda_reg * I)  # Inverse of (X^T X + λI)
-
-                    # Calculate W = (X^T X + λI)^(-1) X^T Y
-                    #W = XtX_inv @ X.T @ Y
                     # ------------------------------------------------------------------------------------------------
+                    #client_copy_list[client_i].auxiliary_model.weight.data = \
+                    #    nn.Parameter(W).to(DEVICE)
+                    client_copy_list[client_i].auxiliary_model.set_weight(W)
+                    #print(f"  -- [Client {client_i:2d}, Round {r:2d}, Batch {client_batch_index:2d}] Time to align aux model: {time.time() - start_time_align:.2e}s")
 
-                    client_copy_list[client_i].auxiliary_model.weight = \
-                        nn.Parameter(W).to(DEVICE)
-                    #save_server_grads[client_i] = torch.cat((save_server_grads[client_i], smashed_data.grad.clone().detach()), dim = 0)
-                    #save_server_grads[client_i] = torch.cat((save_server_grads[client_i], smashed_data.grad.clone().detach()), dim = 0)
                     # ---------------------------------------------------------------------------------------------------------------------
 
-                    #print("------ Debugging saved data -------")
-                    #print(f"Size of dataset for alignment: {smashed_data.grad.size()}")
-                    #print(client_grad_approx)
-                    #print(smashed_data)
-
                 # client backpropagation and update client-side model weights
-                # TODO: Sanity check to make sure the gradients here actually correspond to what I think it does
-                # (e.g., that local_loss.backward() derives the gradients)
-                # gradient = local_smashed_data.grad
-                # client calculates the local loss and do the backpropagation and update auxiliary model weights
                 client_copy_list[client_i].auxiliary_optimizer.zero_grad()
                 client_grad_approx = client_copy_list[client_i].auxiliary_model(local_smashed_data) 
 
                 splitting_output.backward(client_grad_approx)
                 client_copy_list[client_i].optimizer.step()
-        
-                client_batch_index += 1
 
-                    #     save_server_grads[client_i] = torch.cat((save_server_grads[client_i], smashed_data.grad.clone().detach()), dim = 0)
-                    #     print(smashed_data.grad.clone().detach().size())
-                    #     print(save_server_grads[client_i].size())
+                # Debug the newly computed grad approximation
+                if False:
+                    if client_batch_index == max_batch - 1 and ((r + 1) + 1) % l == 0:
+                        approx_grad = client_grad_approx.clone().detach()
+                        true_grad = save_server_grads[client_i][-c_args["batch_size"]:].clone().detach()
+                        print_grad_mse(true_grad, approx_grad, client_i, "[After alignment] ")
+
+                client_batch_index += 1
 
             
             if client_i == s_args["activated"] - 1:
@@ -330,28 +334,19 @@ if __name__ == '__main__':
         # Initial the aggregated model and its weights
         aggregated_client = copy.deepcopy(client_copy_list[0].model)
         aggregated_client_weights = aggregated_client.state_dict()
-        # aggregated_client_auxiliary = copy.deepcopy(client_copy_list[0].auxiliary_model)
-        # aggregated_client_weights_auxiliary = aggregated_client_auxiliary.state_dict()
 
         for key in aggregated_client_weights:
             aggregated_client_weights[key] = client_copy_list[0].model.state_dict()[key] * factor[0]
-        # for key in aggregated_client_weights_auxiliary:
-        #     aggregated_client_weights_auxiliary[key] = client_copy_list[0].auxiliary_model.state_dict()[key] * factor[0]
 
         for i in range(1, s_args["activated"]):
             for key in aggregated_client_weights:
                 aggregated_client_weights[key] += client_copy_list[i].model.state_dict()[key] * factor[i]
-            # for key in aggregated_client_weights_auxiliary:
-            #     aggregated_client_weights_auxiliary[key] += client_copy_list[i].auxiliary_model.state_dict()[key] * factor[i]
-    
 
         # Update client model weights and auxiliary weights
         for i in range(s_args["activated"]):
             client_copy_list[i].model.load_state_dict(aggregated_client_weights)
-            # client_copy_list[i].auxiliary_model.load_state_dict(aggregated_client_weights_auxiliary)
             comm_load += 2 * calculate_load(client_copy_list[i].model)
             comm_load += 2 * calculate_load(client_copy_list[i].auxiliary_model)
-
             
         # ===========================================================================================
         # Inference
@@ -382,9 +377,7 @@ if __name__ == '__main__':
     print("Testing accuracy:", acc_list)
     print("Testing loss:", loss_list)
     
-    '''
-        Save reults to .json files.
-    '''
+    # Save reults to .json files.
     results = {'test_loss': loss_list, 'test_acc' : acc_list,
                'comm_load' : comm_load_list, 'step': s_args['t_round']}
 
