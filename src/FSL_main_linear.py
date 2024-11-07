@@ -46,7 +46,7 @@ class Client():
         self.dataset_size = len(self.train_loader) * c_args["batch_size"] 
 
 class Server():
-    def __init__(self, c_args):
+    def __init__(self, c_args, s_args):
         if c_args['dataset'] == "cifar":
             self.model = model_linear.Server_model_cifar()
         else:
@@ -55,7 +55,10 @@ class Server():
         #     self.model = model.Server_model_femnist()
         self.criterion = nn.NLLLoss().to(DEVICE)
         self.alignLoss = nn.MSELoss().to(DEVICE)
-        self.optimizer = optim.SGD(self.model.parameters(), lr=c_args["lr"])
+
+        # Srijith: If we optimize the server once for every client, we want to
+        # divide the learning rate by the number of active clients
+        self.optimizer = optim.SGD(self.model.parameters(), lr=(s_args["lr"] / s_args["activated"]))
 
 def init_all(model, init_func, *params, **kwargs):
     for p in model.parameters():
@@ -101,7 +104,7 @@ if __name__ == '__main__':
     
     
     # Define the server, and the list of client copies
-    server = Server(c_args)
+    server = Server(c_args, s_args)
     client_copy_list = []
     
     for i in range(s_args["activated"]):   
@@ -146,39 +149,52 @@ if __name__ == '__main__':
     # Note that server must also store grads w.r.t. to client data
     save_server_grads = [ torch.empty(0, 2304).to(DEVICE) for _ in range(s_args["activated"]) ]
     save_smashed_input = [ torch.empty(0, 2304).to(DEVICE) for _ in range(s_args["activated"]) ]
+    save_labels = [ torch.empty(0).to(DEVICE) for _ in range(s_args['activated']) ]
 
     while r < s_args["round"]:
         # r + 1 is b/c indexing by 0
         # so 1st, 2nd, 3rd, 4th instead of 0th, 1st, 2nd, 3rd, ...
         # Alignment then happens every lth term instead of every (l-1)th and 0th term
-        if r != 0 and (r + 1) % l == 0:
-            # TODO: Store the previous gradients (somewhere)
-            # TODO: Calculate the analytic solution for solving the linear model   
-            for client_i in range(s_args['activated']):
-                # Calculate the analytical solution for W
-                # The formula below is the analytical solution of linear regression 
-                # with regularization term to handle when X is nonintvertible
-                lambda_reg = 1e-5  # Regularization parameter, adjust as needed
-                X = save_smashed_input[client_i] # Martix of (N, D) size
-                Y = save_server_grads[client_i]  # Matrix of (N, C) size (here C = D since grad same dimension)
-                # Compute (X^T X + λI)
-                XtX = X.T @ X
-                I = torch.eye(XtX.shape[0]).to(DEVICE)  # Identity matrix with shape (D, D)
-                XtX_inv = torch.inverse(XtX + lambda_reg * I)  # Inverse of (X^T X + λI)
+        #if r != 0 and (r + 1) % l == 0:
+        #    # TODO: Store the previous gradients (somewhere)
+        #    # TODO: Calculate the analytic solution for solving the linear model   
+        #    for client_i in range(s_args['activated']):
+        #        # Calculate the analytical solution for W
+        #        # The formula below is the analytical solution of linear regression 
+        #        # with regularization term to handle when X is nonintvertible
+        #        lambda_reg = 1e-5  # Regularization parameter, adjust as needed
+        #        X = save_smashed_input[client_i] # Martix of (N, D) size
+        #        Y = save_server_grads[client_i]  # Matrix of (N, C) size (here C = D since grad same dimension)
 
-                # Calculate W = (X^T X + λI)^(-1) X^T Y
-                W = XtX_inv @ X.T @ Y
-                client_copy_list[client_i].auxiliary_model.weight = \
-                    nn.Parameter(W).to(DEVICE)
-             # Store the accumulated gradient per round
-            # Note that this must be stored seperately because we need the gradients per client in order to tune the aux model, but 
-            # we need the acc gradient to train the server.
-            save_server_grads = [ torch.empty(0, 2304).to(DEVICE) for _ in range(s_args["activated"]) ]
-            save_smashed_input = [ torch.empty(0, 2304).to(DEVICE) for _ in range(s_args["activated"]) ]
+        #        # ------------------------------------------------------------------------------------------------
+        #        # Srijith: Compute (X^T X + N λ I) where N is the number of data points in X and Y
+        #        XtX = X.T @ X
+        #        XtX = XtX + X.shape[0] * lambda_reg * torch.eye(XtX.shape[0]).to(DEVICE)
 
-            # Complete the forward pass on the server-side for all the acc gradients
-            server.optimizer.step()
-            server.optimizer.zero_grad()
+        #        # Srijith: Calculate W = Y^T . X . (X^T X + NλI)^(-1) using torch.solve.
+        #        # Srijith: The left=False solves for WA = B rather than AW = B, which is what we want
+        #        W = torch.linalg.solve(XtX, Y.T @ X, left=False)
+
+        #        # Compute (X^T X + λI)
+        #        #XtX = X.T @ X
+        #        #I = torch.eye(XtX.shape[0]).to(DEVICE)  # Identity matrix with shape (D, D)
+        #        #XtX_inv = torch.inverse(XtX + lambda_reg * I)  # Inverse of (X^T X + λI)
+
+        #        # Calculate W = (X^T X + λI)^(-1) X^T Y
+        #        #W = XtX_inv @ X.T @ Y
+        #        # ------------------------------------------------------------------------------------------------
+
+        #        client_copy_list[client_i].auxiliary_model.weight = \
+        #            nn.Parameter(W).to(DEVICE)
+        #     # Store the accumulated gradient per round
+        #    # Note that this must be stored seperately because we need the gradients per client in order to tune the aux model, but 
+        #    # we need the acc gradient to train the server.
+        #    #save_server_grads = [ torch.empty(0, 2304).to(DEVICE) for _ in range(s_args["activated"]) ]
+        #    #save_smashed_input = [ torch.empty(0, 2304).to(DEVICE) for _ in range(s_args["activated"]) ]
+
+        #    # Complete the forward pass on the server-side for all the acc gradients
+        #    server.optimizer.step()
+        #    server.optimizer.zero_grad()
 
         it_list = []
         for i in range(s_args["activated"]):
@@ -227,12 +243,60 @@ if __name__ == '__main__':
                     output = server.model(smashed_data) 
                     loss = server.criterion(output, labels)
                     loss.backward()
+                    server.optimizer.step()
+                    server.optimizer.zero_grad()
                     client_batch_index += 1
-                    save_server_grads[client_i] = torch.cat((save_server_grads[client_i], smashed_data.grad.clone().detach()), dim = 0)
+
+                    # ---------------------------------------------------------------------------------------------------------------------
+                    # Srijith: Perhaps here we need to recompute and save gradients everytime the server-side model changes
                     save_smashed_input[client_i] = torch.cat((save_smashed_input[client_i], local_smashed_data.clone().detach()), dim = 0)
-                    # print(smashed_data.grad.size())
-                    # print(client_grad_approx)
-                    # print(smashed_data)
+                    save_labels[client_i] = torch.cat((save_labels[client_i], labels), dim=0).long()
+                    #print(save_labels)
+
+                    # Srijith: Run all previous smashed inputs through the server-side model
+                    #print(save_smashed_input[client_i])
+                    all_ins = save_smashed_input[client_i].clone().detach().requires_grad_(True)
+                    all_out = server.model(all_ins)
+                    all_loss = server.criterion(all_out, save_labels[client_i])
+                    all_loss.backward()
+                    save_server_grads[client_i] = all_ins.grad.clone().detach()
+                    server.optimizer.zero_grad()
+
+                    # Calculate the analytical solution for W
+                    # The formula below is the analytical solution of linear regression 
+                    # with regularization term to handle when X is nonintvertible
+                    lambda_reg = 1e-5  # Regularization parameter, adjust as needed
+                    X = save_smashed_input[client_i] # Martix of (N, D) size
+                    Y = save_server_grads[client_i]  # Matrix of (N, C) size (here C = D since grad same dimension)
+
+                    # ------------------------------------------------------------------------------------------------
+                    # Srijith: Compute (X^T X + N λ I) where N is the number of data points in X and Y
+                    XtX = X.T @ X
+                    XtX = XtX + X.shape[0] * lambda_reg * torch.eye(XtX.shape[0]).to(DEVICE)
+
+                    # Srijith: Calculate W = Y^T . X . (X^T X + NλI)^(-1) using torch.solve.
+                    # Srijith: The left=False solves for WA = B rather than AW = B, which is what we want
+                    W = torch.linalg.solve(XtX, Y.T @ X, left=False)
+
+                    # Compute (X^T X + λI)
+                    #XtX = X.T @ X
+                    #I = torch.eye(XtX.shape[0]).to(DEVICE)  # Identity matrix with shape (D, D)
+                    #XtX_inv = torch.inverse(XtX + lambda_reg * I)  # Inverse of (X^T X + λI)
+
+                    # Calculate W = (X^T X + λI)^(-1) X^T Y
+                    #W = XtX_inv @ X.T @ Y
+                    # ------------------------------------------------------------------------------------------------
+
+                    client_copy_list[client_i].auxiliary_model.weight = \
+                        nn.Parameter(W).to(DEVICE)
+                    #save_server_grads[client_i] = torch.cat((save_server_grads[client_i], smashed_data.grad.clone().detach()), dim = 0)
+                    #save_server_grads[client_i] = torch.cat((save_server_grads[client_i], smashed_data.grad.clone().detach()), dim = 0)
+                    # ---------------------------------------------------------------------------------------------------------------------
+
+                    #print("------ Debugging saved data -------")
+                    #print(f"Size of dataset for alignment: {smashed_data.grad.size()}")
+                    #print(client_grad_approx)
+                    #print(smashed_data)
 
                 # client backpropagation and update client-side model weights
                 # TODO: Sanity check to make sure the gradients here actually correspond to what I think it does
@@ -243,7 +307,7 @@ if __name__ == '__main__':
                 client_grad_approx = client_copy_list[client_i].auxiliary_model(local_smashed_data) 
 
                 splitting_output.backward(client_grad_approx)
-                client_copy_list[client_i].optimizer.step() 
+                client_copy_list[client_i].optimizer.step()
         
                 client_batch_index += 1
 
@@ -306,7 +370,7 @@ if __name__ == '__main__':
             test_correct += predicted.eq(labels.view_as(predicted)).sum().item()
         loss = sum(test_loss) / len(test_loss)
         print(
-            '\nRound {}, for the weighted aggregated final model, testing loss: {:.2f}, testing acc: {:.2f}%  ({}/{})'
+            'Round {}, for the weighted aggregated final model, testing loss: {:.2f}, testing acc: {:.2f}%  ({}/{})'
                 .format(r, loss, 100. * test_correct / len(testLoader.dataset), test_correct, len(testLoader.dataset)))
 
         acc_list.append(test_correct / len(testLoader.dataset))

@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+##!/usr/bin/env python
 # _*_ coding: utf-8 _*_
 # Python version: 3.7
 import os
@@ -68,8 +68,11 @@ def args_parser(method):
                         help = "the number of activated clients per round")
 
     ## client arguments
-    parser.add_argument('--lr', type = float, required = True,
-                        help = "learning rate (LR)")
+    parser.add_argument('--client-lr', type = float, required = True,
+                        help = "learning rate (LR) for clients")
+
+    parser.add_argument('--server-lr', type = float, required = True,
+                        help = "learning rate (LR) for server")
 
     parser.add_argument('--gamma', type = float,
                         help = "decay rate of LR")
@@ -127,6 +130,7 @@ def group_args(args):
     s_args['align']= args.align
        
     s_args['client']= u_args['client']
+    s_args['lr']= args.server_lr
 
     s_args['round']= max(1, args.round)
     s_args['t_round']= max(1, args.test_round)
@@ -140,7 +144,7 @@ def group_args(args):
     c_args['align']= args.align
     c_args['gradSteps']= args.gradSteps
 
-    c_args['lr']= args.lr
+    c_args['lr']= args.client_lr
     c_args['batch_size']= args.localBS
     c_args['epoch']= args.localEP
 
