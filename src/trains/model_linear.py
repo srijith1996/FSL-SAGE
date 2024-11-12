@@ -33,21 +33,58 @@ class Client_model_cifar(nn.Module):
     
 # Auxiliary Model
 class Auxiliary_model_cifar(nn.Module):
-    def __init__(self):
+    def __init__(self, bias=True):
         super(Auxiliary_model_cifar, self).__init__()
-        self.fc = nn.Linear(in_features=6 * 6 * 64, out_features=2304) # Estimator of the gradients   
+        self.bias = bias
+        self.fc = nn.Linear(in_features=6 * 6 * 64, out_features=2304, bias=bias) # Estimator of the gradients   
 
-    def set_weight(self, W):
-        self.fc.weight.data = nn.Parameter(W)
+    def set_weight(self, W, c=None):
+        self.fc.weight.data = W #nn.Parameter(W)
+        if self.bias: self.fc.bias.data = c
+
+    def align_loss(self, X, Y, lambda_reg=1e-3):
+        loss = self.unc_loss(X, Y)
+        if self.bias: 
+            c = self.fc.bias.data[:, None]
+            loss += (lambda_reg / 2) * torch.norm(c)**2
+        loss += (lambda_reg / 2) * torch.norm(self.fc.weight.data, p='fro')**2
+        return loss
+
+    def unc_loss(self, X, Y):
+        if self.bias:
+            c = self.fc.bias.data[:, None]
+            one = torch.ones((X.shape[0], 1)).to(X.device)
+            loss = (1 / (2 * X.shape[0])) * torch.norm(self.fc.weight.data @ X.T
+                                       + c @ one.T - Y.T, p='fro')**2
+        else:
+            loss = (1 / (2 * X.shape[0])) * torch.norm(self.fc.weight.data @ X.T
+                                       - Y.T, p='fro')**2
+        return loss
+            
+    def align(self, X, Y, lambda_reg=1e-1):
+        print(f"Loss Before aux update: {self.unc_loss(X, Y)}")
+        XtX = X.T @ X + X.shape[0] * lambda_reg * torch.eye(X.shape[1]).to(X.device)
+        P = torch.linalg.solve(XtX, X, left=False)
+        if self.bias:
+            one = torch.ones((X.shape[0], 1)).to(X.device)
+            q = P @ X.T @ one
+            c = Y.T @ (one - q) / (X.shape[0] * (1 + lambda_reg) - one.T @ q)
+            W = (Y.T - c @ one.T) @ P
+            c = torch.flatten(c)
+        else:
+            W = Y.T @ P
+            c = None
+        self.set_weight(W, c)
+        print(f"Loss After aux update: {self.unc_loss(X, Y)}")
 
     def forward(self, x):
         # print("AUX MODEL WEIGHT SHAPE")
         # print(x.size())
         # print(self.fc.weight.size())
-        with torch.no_grad():
-            grad_estimate = torch.matmul(x, self.fc.weight)
-    
-        return grad_estimate
+        #with torch.no_grad():
+        #    grad_estimate = torch.matmul(x, self.fc.weight)
+        #return grad_estimate
+        return self.fc(x)
  
  # Server-side Model
 class Server_model_cifar(nn.Module):
