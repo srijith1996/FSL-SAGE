@@ -1,0 +1,27 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Python Debugger: Current File",
+            "type": "debugpy",
+            "request": "launch",
+            "cwd"   : "${workspaceFolder}/src",
+            "program": "${workspaceFolder}/src/FSL_main_linear.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--dataset", "cifar",
+                "-seed", "200", 
+                "-K", "2",
+                "-L", "1",
+                "-U", "2",
+                "-B", "128",
+                "-E", "1",
+                "-batch_round", "5",
+                "--server-lr", "0.005",
+                "--client-lr", "0.00001",
+                "--round", "50",
+                "--iid", "--gpu"
+            ]           
+        }
+    ]
+}
