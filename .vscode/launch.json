@@ -17,8 +17,8 @@
                 "-B", "128",
                 "-E", "1",
                 "-batch_round", "5",
-                "--server-lr", "0.005",
-                "--client-lr", "0.00001",
+                "--server-lr", "0.002",
+                "--client-lr", "0.0004",
                 "--round", "50",
                 "--iid", "--gpu"
             ]           
