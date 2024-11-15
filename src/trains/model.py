@@ -1,8 +1,9 @@
+# ------------------------------------------------------------------------------
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-
+# ------------------------------------------------------------------------------
 ######################## Cifar ##########################
 # Client-side Model
 class Client_model_cifar(nn.Module):
@@ -60,6 +61,7 @@ class Server_model_cifar(nn.Module):
     
 # # Not touching Femnist model for now
 
+# ------------------------------------------------------------------------------
 # ######################## Femnist ##########################
 # # Client-side Model
 # class Client_model_femnist(nn.Module):
@@ -108,3 +110,4 @@ class Server_model_cifar(nn.Module):
 #         x = self.softmax(self.linear_2(x))
         
 #         return x
+# ------------------------------------------------------------------------------

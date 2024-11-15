@@ -25,6 +25,7 @@ from trains import server as serv
 DEBUG = True
 USE_64BIT = False
 WARM_START_EPOCHS = 5
+AGGREGATE_AUXILIARY_MODELS = False
 
 if USE_64BIT: torch.set_default_dtype(torch.float64)
 
@@ -92,17 +93,21 @@ if __name__ == '__main__':
         client_copy_list.append(client.Client(
             i, trainLoader_list[i],
             client.Client_model_cifar(),
-            aux_models.LinearAuxiliaryModel(2304, server, device=DEVICE, bias=True),
+            #aux_models.LinearAuxiliaryModel(2305, server, device=DEVICE, bias=True),
             #aux_models.NNAuxiliaryModel(
-            #    2304, server, device=DEVICE, n_hidden=None,
+            #    2305, server, device=DEVICE, n_hidden=None,
             #    align_iters=20, align_step=1e-4
             #),
+            aux_models.NNGradScalarAuxiliaryModel(
+                2304, 10, server, device=DEVICE, n_hidden=None,
+                align_iters=5000, align_step=3e-3
+            ),
             c_args, device=DEVICE
         ))
     
     # Initial client & server model
     init_all(client_copy_list[0].model, torch.nn.init.normal_, mean=0., std=0.05) 
-    init_all(client_copy_list[0].auxiliary_model, torch.nn.init.normal_, mean=0., std=0.001) 
+    init_all(client_copy_list[0].auxiliary_model, torch.nn.init.normal_, mean=0., std=0.05) 
     init_all(server.model, torch.nn.init.normal_, mean=0., std=0.05) 
     #init_all(client_copy_list[0].model, torch.nn.init.kaiming_normal_) 
     #init_all(client_copy_list[0].auxiliary_model, torch.nn.init.normal_, mean=0., std=1.0) 
@@ -133,10 +138,9 @@ if __name__ == '__main__':
     comm_load_list = []
     start = time.time()
     comm_load = 0
-    batch_max_round = total // c_args["batch_size"] // s_args["activated"]
 
-    assert c_args['batch_size'] <= batch_max_round, \
-        f"Chosen batch_size per client ({c_args['batch_size']}) is larger than the dataset size per client ({batch_max_round})."
+    assert c_args['batch_size'] <= total  // s_args["activated"], \
+        f"Chosen batch_size per client ({c_args['batch_size']}) is larger than the dataset size per client ({total // s_args['activated']})."
 
     # TODO: Right now the code assumes activated clients = total number of clients.
     # May need to change this later
@@ -272,7 +276,7 @@ if __name__ == '__main__':
 
                 # client backpropagation and update client-side model weights
                 #client_copy_list[i].auxiliary_optimizer.zero_grad()
-                client_grad_approx = client_copy_list[i].auxiliary_model(local_smashed_data)
+                client_grad_approx = client_copy_list[i].auxiliary_model(local_smashed_data, labels)
 
                 # Debug the newly computed grad approximation
                 if set_mark and r % l == 0: 
@@ -292,7 +296,7 @@ if __name__ == '__main__':
                         for p1, p2 in zip(dbg_saved_aux_params[i], client_copy_list[i].auxiliary_model.parameters()):
                             assert torch.allclose(p1, p2), f"Auxiliary model for client {i} unintentionally changed!!"
                     assert_server_model_identical()
-                    assert_aux_models_identical()
+                    if not AGGREGATE_AUXILIARY_MODELS: assert_aux_models_identical()
                     client_copy_list[i].auxiliary_model.debug_grad_nmse(
                         local_smashed_data, labels,
                         pre=f' -- [round {r:2d}, client {i:2d}, batch index {k:2d}]'
@@ -326,16 +330,28 @@ if __name__ == '__main__':
         for key in aggregated_client_weights:
             aggregated_client_weights[key] = client_copy_list[0].model.state_dict()[key] * factor[0]
 
+        if AGGREGATE_AUXILIARY_MODELS:
+            aggregated_client_auxiliary = copy.deepcopy(client_copy_list[0].auxiliary_model)
+            aggregated_client_weights_auxiliary = aggregated_client_auxiliary.state_dict()
+
+            for key in aggregated_client_weights_auxiliary:
+                aggregated_client_weights_auxiliary[key] = client_copy_list[0].auxiliary_model.state_dict()[key] * factor[0]
+
         for i in range(1, s_args["activated"]):
             for key in aggregated_client_weights:
                 aggregated_client_weights[key] += client_copy_list[i].model.state_dict()[key] * factor[i]
+            if AGGREGATE_AUXILIARY_MODELS:
+                for key in aggregated_client_weights_auxiliary:
+                    aggregated_client_weights_auxiliary[key] += client_copy_list[i].auxiliary_model.state_dict()[key] * factor[i]
 
         # Update client model weights and auxiliary weights
         for i in range(s_args["activated"]):
             client_copy_list[i].model.load_state_dict(aggregated_client_weights)
             comm_load += 2 * calculate_load(client_copy_list[i].model)
-            comm_load += 2 * calculate_load(client_copy_list[i].auxiliary_model)
-            
+            if AGGREGATE_AUXILIARY_MODELS:
+                client_copy_list[i].auxiliary_model.load_state_dict(aggregated_client_weights_auxiliary)
+                comm_load += 2 * calculate_load(client_copy_list[i].auxiliary_model)
+
         # Inference
         aggregated_client.to(DEVICE)
         aggregated_client.load_state_dict(aggregated_client_weights)
