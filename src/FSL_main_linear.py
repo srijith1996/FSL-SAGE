@@ -1,9 +1,11 @@
+# -----------------------------------------------------------------------------
 """
 Add local loss, no need to transmit the gradient
 client transmit smashed data not every batch data
 server part: model 0 batch 0 - model 0 batch 4 - model 1 batch 0 - model 1 batch 4  ...
 """
 
+# -----------------------------------------------------------------------------
 import os
 import time
 import math
@@ -12,33 +14,31 @@ import json
 import random
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
-import torch.autograd as autograd
 import copy
 from torch.utils.data import DataLoader
-from utils import options, utils
-from trains import model_linear, client, aux_models
+from utils import options, utils, logs, plots
+from trains import client, aux_models, algs
 from trains import server as serv
+import logging
 
+# -----------------------------------------------------------------------------
+# TODO: Move these to command line args
 DEBUG = True
 USE_64BIT = False
 WARM_START_EPOCHS = 5
 AGGREGATE_AUXILIARY_MODELS = False
+DEVICE = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 if USE_64BIT: torch.set_default_dtype(torch.float64)
-
-print("Using GPU: ", torch.cuda.is_available())
-DEVICE = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
-#use_cuda = True if torch.cuda.is_available() else False
- 
 if DEBUG: torch.set_printoptions(sci_mode=True)
-    
+
+# -----------------------------------------------------------------------------
 def init_all(model, init_func, *params, **kwargs):
     for p in model.parameters():
         init_func(p, *params, **kwargs)   
 
+# -----------------------------------------------------------------------------
 def calculate_load(model):        
     param_size = 0
     for param in model.parameters():
@@ -51,20 +51,8 @@ def calculate_load(model):
 #     size_all_mb = (param_size + buffer_size)   # B
     return size_all_mb
 
-if __name__ == '__main__':    
-    ## get system configs
-    args = options.args_parser('FSL-Approx')    #---------todo
-    u_args, s_args, c_args = options.group_args(args) #---------todo
-    utils.show_utils(u_args) #---------todo
-    
-    seed = u_args['seed']
-    torch.manual_seed(seed)
-    random.seed(seed)
-    np.random.seed(seed)
-    
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False
-
+# -----------------------------------------------------------------------------
+def main(u_args, s_args, c_args):
     assert s_args["activated"] <= s_args["client"], \
         f"# activated clients {s_args['activated']} is greater than # clients {s_args['client']}"
 
@@ -79,11 +67,13 @@ if __name__ == '__main__':
             DataLoader(
                 utils.DatasetSplit(trainSet, train_set),
                 batch_size=c_args['batch_size'],
-                shuffle=True, pin_memory=False)
+                shuffle=True, pin_memory=False
+            )
         )
     
-    testLoader = DataLoader(testSet, batch_size=c_args['batch_size'], shuffle=False, pin_memory=False)
-    
+    testLoader = DataLoader(
+        testSet, batch_size=c_args['batch_size'], shuffle=False, pin_memory=False
+    )
     
     # Define the server, and the list of client copies
     server = serv.Server(serv.Server_model_cifar(), s_args, device=DEVICE)
@@ -100,7 +90,7 @@ if __name__ == '__main__':
             #),
             aux_models.NNGradScalarAuxiliaryModel(
                 2304, 10, server, device=DEVICE, n_hidden=None,
-                align_iters=5000, align_step=3e-3
+                align_iters=2000, align_step=3e-3
             ),
             c_args, device=DEVICE
         ))
@@ -126,16 +116,26 @@ if __name__ == '__main__':
     dataset_size_list = [client_copy_list[i].dataset_size for i in range(s_args["activated"])]
     total = sum(dataset_size_list)
     factor = [i / total for i in dataset_size_list]
-    print("Aggregation Factor: ", factor)
+    logging.info(f"Aggregation Factor: {factor}")
 
 
     r = 0  # current communication round
     l = c_args['align'] # the number of training steps to take before the alignment step 
-    print("seed is " + str(seed))
-    print("l is " + str(l))
+    logging.info(f"Random seed: {str(seed)}")
+    logging.info(f"Alignment interval (l): {str(l)}")
+
+    # metrics to save
     acc_list = []
     loss_list = []
+    tr_acc_list = []
+    tr_loss_list = []
     comm_load_list = []
+    if DEBUG:
+        tr_loss_per_client_iter = [[] for _ in range(s_args['activated'])]
+        tr_acc_per_client_iter = [[] for _ in range(s_args['activated'])]
+        tr_grad_mse_per_client_iter = [[] for _ in range(s_args['activated'])]
+        tr_grad_nmse_per_client_iter = [[] for _ in range(s_args['activated'])]
+
     start = time.time()
     comm_load = 0
 
@@ -149,69 +149,13 @@ if __name__ == '__main__':
     num_resets = [0 for _ in range(s_args['activated'])]
 
     # WARM START
-    print("----------------------------- WARM START USING SL -----------------------------------")
-    print(f"Configured epochs = {WARM_START_EPOCHS}")
-
-    client_optim_ws = [optim.Adam(c.model.parameters(), lr=1e-3) for c in client_copy_list]
-    server_optim_ws = optim.Adam(server.model.parameters(), lr=1e-3)
-
-    for r in range(WARM_START_EPOCHS):
-        for i in range(s_args["activated"]):
-            for k, (samples, labels) in enumerate(trainLoader_list[i]):
-
-                # client feedforward
-                if USE_64BIT:
-                    samples, labels = samples.to(DEVICE).double(), labels.to(DEVICE).long()
-                else:
-                    samples, labels = samples.to(DEVICE).float(), labels.to(DEVICE).long()
-                client_optim_ws[i].zero_grad()
-                server_optim_ws.zero_grad()
-
-                # pass smashed data through full model 
-                splitting_output = client_copy_list[i].model(samples)
-                output = server.model(splitting_output) 
-                loss = server.criterion(output, labels)
-                loss.backward()
-                server_optim_ws.step()
-                client_optim_ws[i].step()
-
-        # aggregate client model
-        aggregated_client = copy.deepcopy(client_copy_list[0].model)
-        aggregated_client_weights = aggregated_client.state_dict()
-
-        for key in aggregated_client_weights:
-            aggregated_client_weights[key] = client_copy_list[0].model.state_dict()[key] * factor[0]
-
-        for i in range(1, s_args["activated"]):
-            for key in aggregated_client_weights:
-                aggregated_client_weights[key] += client_copy_list[i].model.state_dict()[key] * factor[i]
-
-        # Update client model weights and auxiliary weights
-        for i in range(s_args["activated"]):
-            client_copy_list[i].model.load_state_dict(aggregated_client_weights)
-            
-        # Inference
-        aggregated_client.to(DEVICE)
-        aggregated_client.load_state_dict(aggregated_client_weights)
-        test_correct = 0
-        test_loss = []
-        with torch.no_grad():
-            for samples, labels in testLoader:
-                if USE_64BIT:
-                    samples, labels = samples.to(DEVICE).double(), labels.to(DEVICE).long()
-                else:
-                    samples, labels = samples.to(DEVICE).float(), labels.to(DEVICE).long()
-                splitting_output = aggregated_client(samples)
-                output = server.model(splitting_output)
-                batch_loss = server.criterion(output, labels)
-                test_loss.append(batch_loss.item())
-                _, predicted = torch.max(output.data, 1)
-                test_correct += predicted.eq(labels.view_as(predicted)).sum().item()
-            loss = sum(test_loss) / len(test_loss)
-            print('WS Round {}, testing loss: {:.2f}, testing acc: {:.2f}%'
-                    .format(r, loss, 100. * test_correct / len(testLoader.dataset)))
-
-    print("-------------------------------------------------------------------------------------")
+    logging.info("----------------------------- WARM START USING SL -----------------------------------")
+    client_copy_list, aggregated_client, server = algs.sl_single_server(
+        WARM_START_EPOCHS, len(trainLoader_list[0]), client_copy_list, server,
+        trainLoader_list, testLoader, factor, testLoader, use_64bit=USE_64BIT,
+        device=DEVICE
+    )
+    logging.info("-------------------------------------------------------------------------------------")
 
     set_mark = False
     dbg_saved_aux_params = [[] for _ in range(s_args['activated'])]
@@ -227,10 +171,9 @@ if __name__ == '__main__':
                 # sample dataset
                 #batch_count[i] += 1
                 samples, labels = next(it_list[i])
-                if USE_64BIT:
-                    samples, labels = samples.to(DEVICE).double(), labels.to(DEVICE).long()
-                else:
-                    samples, labels = samples.to(DEVICE).float(), labels.to(DEVICE).long()
+                samples = samples.to(DEVICE).double() if USE_64BIT else \
+                    samples.to(DEVICE).float()
+                labels = labels.to(DEVICE).long()
                 
                 # client feedforward
                 client_copy_list[i].optimizer.zero_grad()
@@ -240,7 +183,7 @@ if __name__ == '__main__':
                 # contact server and perform alignment at every l^th round and first local iteration
                 if r % l == 0 and k == 0:
 
-                    if DEBUG: print(f" ------------ ALIGNMENT <R {r:2d}, C {i:2d}, k {k:2d}> -----------------")
+                    if DEBUG: logging.debug(f" ------------ ALIGNMENT <R {r:2d}, C {i:2d}, k {k:2d}> -----------------")
                     smashed_data = splitting_output.clone().detach().requires_grad_(True)
                     comm_load += smashed_data.numel() * 4   # float32 = 4 bytes
 
@@ -285,7 +228,7 @@ if __name__ == '__main__':
                         local_smashed_data, labels,
                         pre=f' -- [after align] <round {r:2d}, client {i:2d}, batch index {k:2d}>'
                     )
-                    if DEBUG:  print(f" -----------------------------------------------------------------------")
+                    if DEBUG:  logging.debug(f" -----------------------------------------------------------------------")
                 
                 # for debugging ********
                 if DEBUG:
@@ -297,30 +240,38 @@ if __name__ == '__main__':
                             assert torch.allclose(p1, p2), f"Auxiliary model for client {i} unintentionally changed!!"
                     assert_server_model_identical()
                     if not AGGREGATE_AUXILIARY_MODELS: assert_aux_models_identical()
-                    client_copy_list[i].auxiliary_model.debug_grad_nmse(
+                    mse, nmse = client_copy_list[i].auxiliary_model.debug_grad_nmse(
                         local_smashed_data, labels,
                         pre=f' -- [round {r:2d}, client {i:2d}, batch index {k:2d}]'
                     )
+                    tr_grad_mse_per_client_iter[i].append(mse.item())
+                    tr_grad_nmse_per_client_iter[i].append(nmse.item())
+
+                    # Test on training data
+                    with torch.no_grad():
+                        tr_loss = []
+                        tr_correct = 0
+
+                        for samples, labels in trainLoader_list[i]:
+                            samples = samples.to(DEVICE).double() if USE_64BIT else samples.to(DEVICE).float()
+                            labels = labels.to(DEVICE).long()
+                            output = server.model(aggregated_client(samples))
+                            batch_loss = server.criterion(output, labels)
+                            tr_loss.append(batch_loss.item())
+                            _, predicted = torch.max(output.data, 1)
+                            tr_correct += predicted.eq(labels.view_as(predicted)).sum().item()
+
+                        tr_loss = sum(tr_loss) / len(tr_loss)
+                        total = len(trainLoader_list[i].dataset)
+                        tr_acc = tr_correct / total
+                        logging.debug(f' tr. loss: {tr_loss:.2f}, tr. acc: {100. * tr_acc:.2f}%')
+
+                        tr_loss_per_client_iter[i].append(tr_loss)
+                        tr_acc_per_client_iter[i].append(tr_acc)
+
 
                 splitting_output.backward(client_grad_approx)
                 client_copy_list[i].optimizer.step()
-
-                # Test on training data (debugging)
-                with torch.no_grad():
-                    tr_loss = []
-                    tr_correct = 0
-                    for samples, labels in trainLoader_list[i]:
-                        if USE_64BIT:
-                            samples, labels = samples.to(DEVICE).double(), labels.to(DEVICE).long()
-                        else:
-                            samples, labels = samples.to(DEVICE).float(), labels.to(DEVICE).long()
-                        output = server.model(client_copy_list[i].model(samples))
-                        batch_loss = server.criterion(output, labels)
-                        tr_loss.append(batch_loss.item())
-                        _, predicted = torch.max(output.data, 1)
-                        tr_correct += predicted.eq(labels.view_as(predicted)).sum().item()
-                    tr_loss = sum(tr_loss) / len(tr_loss)
-                    print(f' > [R{r:2d} C{i:2d} k{k:2d}] tr. loss: {tr_loss:.2f}, tr acc: {100. * tr_correct / len(trainLoader_list[i].dataset):.2f}%')
 
 
         # Model Aggregation (weighted)
@@ -359,29 +310,45 @@ if __name__ == '__main__':
         test_loss = []
         with torch.no_grad():
             for samples, labels in testLoader:
-                if USE_64BIT:
-                    samples, labels = samples.to(DEVICE).double(), labels.to(DEVICE).long()
-                else:
-                    samples, labels = samples.to(DEVICE).float(), labels.to(DEVICE).long()
+                samples = samples.to(DEVICE).double() if USE_64BIT else samples.to(DEVICE).float()
+                labels = labels.to(DEVICE).long()
                 splitting_output = aggregated_client(samples)
                 output = server.model(splitting_output)
                 batch_loss = server.criterion(output, labels)
                 test_loss.append(batch_loss.item())
                 _, predicted = torch.max(output.data, 1)
                 test_correct += predicted.eq(labels.view_as(predicted)).sum().item()
-            loss = sum(test_loss) / len(test_loss)
-            print(' > R {:2d}, for the weighted aggregated final model, testing loss: {:.2f}, testing acc: {:.2f}%  ({:5d}/{})'
-                    .format(r, loss, 100. * test_correct / len(testLoader.dataset), test_correct, len(testLoader.dataset)))
+            ts_loss = sum(test_loss) / len(test_loss)
+            ts_acc = test_correct / len(testLoader.dataset)
 
-        acc_list.append(test_correct / len(testLoader.dataset))
-        loss_list.append(loss)
+        acc_list.append(ts_acc)
+        loss_list.append(ts_loss)
         comm_load_list.append(comm_load)
 
+        # Test on training data (debugging)
+        with torch.no_grad():
+            tr_loss = []
+            tr_correct = 0
+            for i in range(s_args['activated']):
+                for samples, labels in trainLoader_list[i]:
+                    samples = samples.to(DEVICE).double() if USE_64BIT else samples.to(DEVICE).float()
+                    labels = labels.to(DEVICE).long()
+                    output = server.model(aggregated_client(samples))
+                    batch_loss = server.criterion(output, labels)
+                    tr_loss.append(batch_loss.item())
+                    _, predicted = torch.max(output.data, 1)
+                    tr_correct += predicted.eq(labels.view_as(predicted)).sum().item()
+            tr_loss = sum(tr_loss) / len(tr_loss)
+            total = sum([len(trainLoader_list[i].dataset) for i in range(s_args['activated'])])
+            tr_acc = tr_correct / total
 
-    print('The total running time for all rounds is ', round(time.time() - start, 2), 'seconds')
-    print("Testing accuracy:", acc_list)
-    print("Testing loss:", loss_list)
-    
+        tr_acc_list.append(tr_acc)
+        tr_loss_list.append(tr_loss)
+
+        logging.info(f' > R {r:2d}, for the weighted aggregated final model, testing loss: {ts_loss:.4e}, testing acc: {100. * ts_acc:.2f}% ({test_correct:5d}/{len(testLoader.dataset)}), training loss: {tr_loss:.2f}, training acc: {100. * tr_acc:.2f}%')
+
+    logging.info(f'The total running time for all rounds is {round(time.time() - start, 2)} seconds')
+
     # Save reults to .json files.
     results = {'test_loss': loss_list, 'test_acc' : acc_list,
                'comm_load' : comm_load_list, 'step': s_args['t_round']}
@@ -390,7 +357,46 @@ if __name__ == '__main__':
         file_name = os.path.join(u_args['save_path'], 'results.json')
         with open(file_name, 'w') as outf:
             json.dump(results, outf)
-            print(f"\033[1;36m[NOTICE] Saved results to '{file_name}'.\033[0m")
+            logging.info(f"[NOTICE] Saved results to '{file_name}'.")
         
         metrics_file = os.path.join(u_args['save_path'], 'metrics.pt')
         torch.save([acc_list, loss_list, comm_load_list], metrics_file)
+
+    # Plot training and test results
+    plots.plot_final_metrics(
+        tr_loss_per_client_iter, tr_acc_per_client_iter,
+        tr_grad_mse_per_client_iter, tr_grad_nmse_per_client_iter, tr_loss_list,
+        tr_acc_list, loss_list, acc_list, u_args['plot_path'],
+        debug=DEBUG, save = u_args['save']
+    )
+
+    logging.info(f"Testing accuracy: {acc_list}")
+    logging.info(f"Testing loss: {loss_list}")
+    logging.info(f"Training accuracy: {tr_acc_list}")
+    logging.info(f"Training loss: {tr_loss_list}")
+
+# -----------------------------------------------------------------------------
+if __name__ == '__main__':    
+    ## get system configs
+    args = options.args_parser('FSL-Approx')    #---------todo
+    u_args, s_args, c_args = options.group_args(args) #---------todo
+    u_args['plot_path'] = os.path.join(u_args['save_path'], 'plots')
+    os.makedirs(u_args['plot_path'], exist_ok=True)
+    utils.show_utils(u_args) #---------todo
+    
+    logs.configure_logging(os.path.join(u_args['save_path'], "output.log"))
+    logs.log_hparams(u_args, c_args, s_args)
+
+    logging.info(f"Using GPU: {torch.cuda.is_available()}")
+ 
+    seed = u_args['seed']
+    torch.manual_seed(seed)
+    random.seed(seed)
+    np.random.seed(seed)
+    
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    main(u_args, s_args, c_args)
+
+# -----------------------------------------------------------------------------

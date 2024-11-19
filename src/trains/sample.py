@@ -20,10 +20,11 @@ def sample_iid(args, dataset):
     allIdx = [i for i in range(len(dataset))]
     dictUser = {i: {'idxs': np.array([])} for i in range(args['client'])}
 
+    ## set random seed
+    #np.random.seed(15688)
+
     for i in range(args['client']):
         dictUser[i]['num'] = itemNum
-        ## set random seed
-        np.random.seed(15688)
 #         np.random.seed(2000)
         dictUser[i]['idxs'] = set(np.random.choice(allIdx, itemNum, replace=False))
         ## remove the sample indexs been distributed

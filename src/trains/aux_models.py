@@ -7,12 +7,10 @@ import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
 from trains.server import Server
+import logging
 
 # ------------------------------------------------------------------------------
 DEBUG = 1
-
-def debug(str):
-    if DEBUG: print(str)
 
 # ------------------------------------------------------------------------------
 class AuxiliaryModel(ABC, nn.Module):
@@ -126,13 +124,14 @@ class AuxiliaryModel(ABC, nn.Module):
         #debug(f"[DEBUG] Approx grad: \n{approx_grad}")
         assert approx_grad.shape == true_grad.shape,\
                 "True and predicted gradients don't match"
-        #print("True grad: ", true_grad)
-        #print("Approx grad: ", approx_grad)
+        #logger.debug("True grad: ", true_grad)
+        #logger.debug("Approx grad: ", approx_grad)
         nmse_grad = F.mse_loss(true_grad, approx_grad, reduction='sum') / torch.sum(true_grad**2)
         mse_grad = F.mse_loss(true_grad, approx_grad)
-        print(f"{pre} MSE: {mse_grad:0.3e}, NMSE: {nmse_grad:0.3e}")
+        logging.debug(f"{pre} MSE: {mse_grad:0.3e}, NMSE: {nmse_grad:0.3e}")
 
         self.server.optimizer.zero_grad()
+        return mse_grad, nmse_grad
         
 # ------------------------------------------------------------------------------
 class LinearAuxiliaryModel(AuxiliaryModel):
@@ -167,8 +166,8 @@ class LinearAuxiliaryModel(AuxiliaryModel):
     def align(self, lambda_reg=1e-3):
 
         X, Y = self.get_align_dataset()
-        debug(f"Size of alignment dataset: {X.shape[0]}")
-        debug(f"Loss Before aux update: {self.unc_loss()}")
+        logging.debug(f"Size of alignment dataset: {X.shape[0]}")
+        logging.debug(f"Loss Before aux update: {self.unc_loss()}")
         XtX = X.T @ X + X.shape[0] * lambda_reg * torch.eye(X.shape[1]).to(X.device)
         P = torch.linalg.solve(XtX, X, left=False)
         if self.bias:
@@ -182,7 +181,7 @@ class LinearAuxiliaryModel(AuxiliaryModel):
             W = Y.T @ P
             c = None
         self.fc.weight.data = W
-        debug(f"Loss After aux update: {self.unc_loss()}")
+        logging.debug(f"Loss After aux update: {self.unc_loss()}")
 
     def forward(self, x, label):
         x = self.get_cat_data(x, label)
@@ -217,16 +216,16 @@ class NNAuxiliaryModel(AuxiliaryModel):
         return loss
 
     def align(self, lambda_reg=1e-1):
-        debug(f"Loss Before aux update: {self.unc_loss()}")
+        logging.debug(f"Loss Before aux update: {self.unc_loss()}")
         optimizer = optim.Adam(self.parameters(), lr=self.align_step)
 
         for i in range(self.align_iters):
             optimizer.zero_grad()
             loss = self.align_loss(lambda_reg)
-            debug(f" --- Iter {i}, Loss {loss}")
+            logging.debug(f" --- Iter {i}, Loss {loss}")
             loss.backward()
             optimizer.step()
-        debug(f"Loss After aux update: {self.unc_loss()}")
+        logging.debug(f"Loss After aux update: {self.unc_loss()}")
 
     def forward(self, x, label):
         x = self.get_cat_data(x, label)
@@ -255,8 +254,8 @@ class NNGradScalarAuxiliaryModel(AuxiliaryModel):
     def unc_loss(self):
         X, Y = self.data_x, self.data_y
         aux_out = self.forward(X, self.data_labels)
-        #print(Y[:5, :5])
-        #print(aux_out[:5, :5])
+        #logging.debug(Y[:5, :5])
+        #logging.debug(aux_out[:5, :5])
         loss = F.mse_loss(aux_out, Y, reduction='sum')
         return loss
             
@@ -266,19 +265,19 @@ class NNGradScalarAuxiliaryModel(AuxiliaryModel):
         return loss
 
     def align(self, lambda_reg=1e-1):
-        debug(f"Loss Before aux update: {self.unc_loss()}")
+        logging.debug(f"Loss Before aux update: {self.unc_loss()}")
         optimizer = optim.Adam(self.parameters(), lr=self.align_step)
 
         bar = trange(self.align_iters, desc="Alignment", disable=True)
         for i in bar:
             optimizer.zero_grad()
             loss = self.align_loss(lambda_reg)
-            #if i % 500 == 0: debug(f" --- Iter {i:4d}/{self.align_iters}, Loss {loss:.4e}")
+            if i % 200 == 0: logging.debug(f" --- Iter {i:4d}/{self.align_iters}, Loss {loss:.4e}")
             loss.backward()
             optimizer.step()
             bar.set_postfix(loss=loss.item())
 
-        debug(f"Loss After aux update: {self.unc_loss()}")
+        logging.debug(f"Loss After aux update: {self.unc_loss()}")
 
     def forward_inner(self, x):
         x = F.relu(self.fc1(x))

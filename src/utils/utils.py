@@ -1,9 +1,11 @@
 #!/usr/bin/env python
 # _*_ coding: utf-8 _*_
 # Python version: 3.7
-import random
+#import random
+import logging
 from trains import sample
 from utils import dataset
+import torch
 from torch.utils.data import Dataset
 from torchvision import datasets, transforms
 
@@ -21,7 +23,7 @@ def get_dataset(args, u_args):
     if args['dataset'] == 'cifar':
         dataDir = '../datas/cifar'
         
-        random.seed(10)
+        #random.seed(10)
         ## define the image transform rule
         trainRule = transforms.Compose([
             transforms.RandomCrop(24),
@@ -96,10 +98,17 @@ def show_utils(args):
         Print system setup profile.
     '''
 
-    print('*'*80); print('SYSTEM CONFIGS'); print('*'*80)
-    print(f"  \\__ Method:        {args['method']}")
-    print(f"  \\__ Dataset:       {args['dataset']}")
-    print(f"  \\__ Save:          {args['save']}")
+    logging.info('*'*80); print('SYSTEM CONFIGS'); print('*'*80)
+    logging.info(f"  \\__ Method:        {args['method']}")
+    logging.info(f"  \\__ Dataset:       {args['dataset']}")
+    logging.info(f"  \\__ Save:          {args['save']}")
 
     if args['method'] == 'CSE_FSL':
-        print(f"  \\__ Sample method: {args['sample']}")
+        logging.info(f"  \\__ Sample method: {args['sample']}")
+
+
+def save_model(model, path):
+    torch.save(model.state_dict(), path)
+
+def load_model(model, path):
+    model.load_state_dict(torch.load(path, weights_only=True))

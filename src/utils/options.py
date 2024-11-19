@@ -161,7 +161,7 @@ def group_args(args):
     client_info	 = f"{c_args['dataset']}-{u_args['sample']}"
     train_info	 = f"K{s_args['client']}U{s_args['activated']}E{c_args['epoch']}BR{u_args['batch_round']}-{u_args['seed']}"
 
-    timestamp = datetime.now().strftime('%H%M%S')
+    timestamp = datetime.now().strftime(r'%y%m%d-%H%M%S')
     dir_name = client_info + '-' + train_info + '-' + timestamp
     if u_args['save']:
         p = os.path.join('../saves', dir_name)
