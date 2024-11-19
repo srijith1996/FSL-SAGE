@@ -1,0 +1,200 @@
+
+Round 0, for the weighted aggregated final model, testing loss: 2.02, testing acc: 21.43%  (2143/10000)
+
+Round 1, for the weighted aggregated final model, testing loss: 1.71, testing acc: 37.44%  (3744/10000)
+
+Round 2, for the weighted aggregated final model, testing loss: 1.51, testing acc: 44.57%  (4457/10000)
+
+Round 3, for the weighted aggregated final model, testing loss: 1.42, testing acc: 47.87%  (4787/10000)
+
+Round 4, for the weighted aggregated final model, testing loss: 1.40, testing acc: 49.77%  (4977/10000)
+
+Round 5, for the weighted aggregated final model, testing loss: 1.30, testing acc: 52.66%  (5266/10000)
+
+Round 6, for the weighted aggregated final model, testing loss: 1.24, testing acc: 55.03%  (5503/10000)
+
+Round 7, for the weighted aggregated final model, testing loss: 1.24, testing acc: 55.38%  (5538/10000)
+
+Round 8, for the weighted aggregated final model, testing loss: 1.18, testing acc: 57.78%  (5778/10000)
+
+Round 9, for the weighted aggregated final model, testing loss: 1.14, testing acc: 59.42%  (5942/10000)
+
+Round 10, for the weighted aggregated final model, testing loss: 1.14, testing acc: 60.53%  (6053/10000)
+
+Round 11, for the weighted aggregated final model, testing loss: 1.10, testing acc: 61.58%  (6158/10000)
+
+Round 12, for the weighted aggregated final model, testing loss: 1.07, testing acc: 62.02%  (6202/10000)
+
+Round 13, for the weighted aggregated final model, testing loss: 1.06, testing acc: 63.01%  (6301/10000)
+
+Round 14, for the weighted aggregated final model, testing loss: 1.06, testing acc: 62.78%  (6278/10000)
+
+Round 15, for the weighted aggregated final model, testing loss: 1.00, testing acc: 64.61%  (6461/10000)
+
+Round 16, for the weighted aggregated final model, testing loss: 1.02, testing acc: 64.15%  (6415/10000)
+
+Round 17, for the weighted aggregated final model, testing loss: 1.00, testing acc: 64.39%  (6439/10000)
+
+Round 18, for the weighted aggregated final model, testing loss: 0.98, testing acc: 65.45%  (6545/10000)
+
+Round 19, for the weighted aggregated final model, testing loss: 0.96, testing acc: 66.18%  (6618/10000)
+
+Round 20, for the weighted aggregated final model, testing loss: 0.96, testing acc: 66.70%  (6670/10000)
+
+Round 21, for the weighted aggregated final model, testing loss: 0.97, testing acc: 66.56%  (6656/10000)
+
+Round 22, for the weighted aggregated final model, testing loss: 0.97, testing acc: 65.58%  (6558/10000)
+
+Round 23, for the weighted aggregated final model, testing loss: 0.94, testing acc: 67.11%  (6711/10000)
+
+Round 24, for the weighted aggregated final model, testing loss: 0.93, testing acc: 67.00%  (6700/10000)
+
+Round 25, for the weighted aggregated final model, testing loss: 0.91, testing acc: 68.67%  (6867/10000)
+
+Round 26, for the weighted aggregated final model, testing loss: 0.92, testing acc: 67.98%  (6798/10000)
+
+Round 27, for the weighted aggregated final model, testing loss: 0.90, testing acc: 68.09%  (6809/10000)
+
+Round 28, for the weighted aggregated final model, testing loss: 0.91, testing acc: 68.69%  (6869/10000)
+
+Round 29, for the weighted aggregated final model, testing loss: 0.92, testing acc: 68.24%  (6824/10000)
+
+Round 30, for the weighted aggregated final model, testing loss: 0.89, testing acc: 69.04%  (6904/10000)
+
+Round 31, for the weighted aggregated final model, testing loss: 0.89, testing acc: 69.53%  (6953/10000)
+
+Round 32, for the weighted aggregated final model, testing loss: 0.92, testing acc: 68.20%  (6820/10000)
+
+Round 33, for the weighted aggregated final model, testing loss: 0.88, testing acc: 69.00%  (6900/10000)
+
+Round 34, for the weighted aggregated final model, testing loss: 0.92, testing acc: 68.49%  (6849/10000)
+
+Round 35, for the weighted aggregated final model, testing loss: 0.88, testing acc: 68.98%  (6898/10000)
+
+Round 36, for the weighted aggregated final model, testing loss: 0.88, testing acc: 69.86%  (6986/10000)
+
+Round 37, for the weighted aggregated final model, testing loss: 0.87, testing acc: 69.87%  (6987/10000)
+
+Round 38, for the weighted aggregated final model, testing loss: 0.88, testing acc: 69.38%  (6938/10000)
+
+Round 39, for the weighted aggregated final model, testing loss: 0.85, testing acc: 70.50%  (7050/10000)
+
+Round 40, for the weighted aggregated final model, testing loss: 0.86, testing acc: 69.65%  (6965/10000)
+
+Round 41, for the weighted aggregated final model, testing loss: 0.85, testing acc: 70.77%  (7077/10000)
+
+Round 42, for the weighted aggregated final model, testing loss: 0.85, testing acc: 70.76%  (7076/10000)
+
+Round 43, for the weighted aggregated final model, testing loss: 0.82, testing acc: 71.43%  (7143/10000)
+
+Round 44, for the weighted aggregated final model, testing loss: 0.84, testing acc: 70.91%  (7091/10000)
+
+Round 45, for the weighted aggregated final model, testing loss: 0.84, testing acc: 70.95%  (7095/10000)
+
+Round 46, for the weighted aggregated final model, testing loss: 0.83, testing acc: 70.76%  (7076/10000)
+
+Round 47, for the weighted aggregated final model, testing loss: 0.82, testing acc: 71.74%  (7174/10000)
+
+Round 48, for the weighted aggregated final model, testing loss: 0.82, testing acc: 71.73%  (7173/10000)
+
+Round 49, for the weighted aggregated final model, testing loss: 0.83, testing acc: 71.66%  (7166/10000)
+
+Round 50, for the weighted aggregated final model, testing loss: 0.83, testing acc: 71.89%  (7189/10000)
+
+Round 51, for the weighted aggregated final model, testing loss: 0.81, testing acc: 71.99%  (7199/10000)
+
+Round 52, for the weighted aggregated final model, testing loss: 0.82, testing acc: 71.77%  (7177/10000)
+
+Round 53, for the weighted aggregated final model, testing loss: 0.82, testing acc: 71.78%  (7178/10000)
+
+Round 54, for the weighted aggregated final model, testing loss: 0.81, testing acc: 71.97%  (7197/10000)
+
+Round 55, for the weighted aggregated final model, testing loss: 0.79, testing acc: 72.83%  (7283/10000)
+
+Round 56, for the weighted aggregated final model, testing loss: 0.80, testing acc: 72.83%  (7283/10000)
+
+Round 57, for the weighted aggregated final model, testing loss: 0.79, testing acc: 72.93%  (7293/10000)
+
+Round 58, for the weighted aggregated final model, testing loss: 0.81, testing acc: 71.85%  (7185/10000)
+
+Round 59, for the weighted aggregated final model, testing loss: 0.80, testing acc: 72.80%  (7280/10000)
+
+Round 60, for the weighted aggregated final model, testing loss: 0.81, testing acc: 72.03%  (7203/10000)
+
+Round 61, for the weighted aggregated final model, testing loss: 0.81, testing acc: 72.16%  (7216/10000)
+
+Round 62, for the weighted aggregated final model, testing loss: 0.79, testing acc: 73.00%  (7300/10000)
+
+Round 63, for the weighted aggregated final model, testing loss: 0.78, testing acc: 73.06%  (7306/10000)
+
+Round 64, for the weighted aggregated final model, testing loss: 0.80, testing acc: 72.58%  (7258/10000)
+
+Round 65, for the weighted aggregated final model, testing loss: 0.79, testing acc: 72.91%  (7291/10000)
+
+Round 66, for the weighted aggregated final model, testing loss: 0.80, testing acc: 72.21%  (7221/10000)
+
+Round 67, for the weighted aggregated final model, testing loss: 0.77, testing acc: 73.43%  (7343/10000)
+
+Round 68, for the weighted aggregated final model, testing loss: 0.78, testing acc: 73.36%  (7336/10000)
+
+Round 69, for the weighted aggregated final model, testing loss: 0.78, testing acc: 73.09%  (7309/10000)
+
+Round 70, for the weighted aggregated final model, testing loss: 0.79, testing acc: 72.86%  (7286/10000)
+
+Round 71, for the weighted aggregated final model, testing loss: 0.77, testing acc: 73.38%  (7338/10000)
+
+Round 72, for the weighted aggregated final model, testing loss: 0.77, testing acc: 73.49%  (7349/10000)
+
+Round 73, for the weighted aggregated final model, testing loss: 0.78, testing acc: 73.00%  (7300/10000)
+
+Round 74, for the weighted aggregated final model, testing loss: 0.78, testing acc: 73.47%  (7347/10000)
+
+Round 75, for the weighted aggregated final model, testing loss: 0.77, testing acc: 73.74%  (7374/10000)
+
+Round 76, for the weighted aggregated final model, testing loss: 0.77, testing acc: 73.76%  (7376/10000)
+
+Round 77, for the weighted aggregated final model, testing loss: 0.76, testing acc: 73.72%  (7372/10000)
+
+Round 78, for the weighted aggregated final model, testing loss: 0.76, testing acc: 74.09%  (7409/10000)
+
+Round 79, for the weighted aggregated final model, testing loss: 0.76, testing acc: 73.76%  (7376/10000)
+
+Round 80, for the weighted aggregated final model, testing loss: 0.77, testing acc: 73.58%  (7358/10000)
+
+Round 81, for the weighted aggregated final model, testing loss: 0.76, testing acc: 73.39%  (7339/10000)
+
+Round 82, for the weighted aggregated final model, testing loss: 0.77, testing acc: 73.73%  (7373/10000)
+
+Round 83, for the weighted aggregated final model, testing loss: 0.76, testing acc: 74.15%  (7415/10000)
+
+Round 84, for the weighted aggregated final model, testing loss: 0.77, testing acc: 73.41%  (7341/10000)
+
+Round 85, for the weighted aggregated final model, testing loss: 0.74, testing acc: 74.50%  (7450/10000)
+
+Round 86, for the weighted aggregated final model, testing loss: 0.76, testing acc: 74.06%  (7406/10000)
+
+Round 87, for the weighted aggregated final model, testing loss: 0.76, testing acc: 74.06%  (7406/10000)
+
+Round 88, for the weighted aggregated final model, testing loss: 0.77, testing acc: 73.38%  (7338/10000)
+
+Round 89, for the weighted aggregated final model, testing loss: 0.75, testing acc: 74.37%  (7437/10000)
+
+Round 90, for the weighted aggregated final model, testing loss: 0.74, testing acc: 74.75%  (7475/10000)
+
+Round 91, for the weighted aggregated final model, testing loss: 0.75, testing acc: 74.68%  (7468/10000)
+
+Round 92, for the weighted aggregated final model, testing loss: 0.75, testing acc: 74.10%  (7410/10000)
+
+Round 93, for the weighted aggregated final model, testing loss: 0.75, testing acc: 74.59%  (7459/10000)
+
+Round 94, for the weighted aggregated final model, testing loss: 0.76, testing acc: 73.82%  (7382/10000)
+
+Round 95, for the weighted aggregated final model, testing loss: 0.74, testing acc: 74.80%  (7480/10000)
+
+Round 96, for the weighted aggregated final model, testing loss: 0.75, testing acc: 74.32%  (7432/10000)
+
+Round 97, for the weighted aggregated final model, testing loss: 0.75, testing acc: 74.37%  (7437/10000)
+
+Round 98, for the weighted aggregated final model, testing loss: 0.76, testing acc: 74.18%  (7418/10000)
+
+Round 99, for the weighted aggregated final model, testing loss: 0.74, testing acc: 74.73%  (7473/10000)

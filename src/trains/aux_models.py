@@ -292,3 +292,57 @@ class NNGradScalarAuxiliaryModel(AuxiliaryModel):
         return aux_out
  
 # ------------------------------------------------------------------------------
+class VanillaFSL(AuxiliaryModel):
+    def __init__(self,
+        n_input, n_output, server, device='cpu', n_hidden=None,
+        align_iters=5, align_step=1e-3, 
+    ):
+        super(VanillaFSL, self).__init__(server, device)
+        if n_hidden is None:
+            n_hidden = 2 * n_input
+        self.fc = nn.Linear(in_features=n_input, out_features=n_output)        
+        self.align_iters = align_iters
+        self.align_step = align_step
+        self.optimizer = optim.Adam(self.parameters(), lr=self.align_step)
+
+    def unc_loss(self):
+        X, Y = self.data_x, self.data_y
+        aux_out = self.forward(X, self.data_labels)
+        #print(Y[:5, :5])
+        #print(aux_out[:5, :5])
+        loss = F.mse_loss(aux_out, Y, reduction='sum')
+        return loss
+            
+    def align_loss(self, lambda_reg=1e-3):
+        # TODO: Implement regularization if needed
+        loss = self.unc_loss()
+        return loss
+
+    def align(self, lambda_reg=1e-1):
+        debug(f"Loss Before aux update: {self.unc_loss()}")
+        optimizer = optim.Adam(self.parameters(), lr=self.align_step)
+
+        bar = trange(self.align_iters, desc="Alignment", disable=True)
+        for i in bar:
+            optimizer.zero_grad()
+            loss = self.align_loss(lambda_reg)
+            #if i % 500 == 0: debug(f" --- Iter {i:4d}/{self.align_iters}, Loss {loss:.4e}")
+            loss.backward()
+            optimizer.step()
+            bar.set_postfix(loss=loss.item())
+
+        debug(f"Loss After aux update: {self.unc_loss()}")
+
+    def forward_inner(self, x):
+        # x = F.relu(self.fc1(x))
+        x = F.log_softmax(self.fc(x), dim=1)
+
+        return x
+    
+    def forward(self, x, label):
+        x.requires_grad_(True)
+        out = self.server.criterion(self.forward_inner(x), label)
+
+        return out
+ 
+# ------------------------------------------------------------------------------

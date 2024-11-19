@@ -19,40 +19,22 @@ import torch.autograd as autograd
 import copy
 from torch.utils.data import DataLoader
 from utils import options, utils
-from trains import model
+from trains import model_linear, client, aux_models
+from trains import server as serv
 
-print("Whether we are using GPU: ", torch.cuda.is_available())
+DEBUG = True
+USE_64BIT = False
+WARM_START_EPOCHS = 5
+AGGREGATE_AUXILIARY_MODELS = False
+
+if USE_64BIT: torch.set_default_dtype(torch.float64)
+
+print("Using GPU: ", torch.cuda.is_available())
 DEVICE = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 #use_cuda = True if torch.cuda.is_available() else False
  
+if DEBUG: torch.set_printoptions(sci_mode=True)
     
-class Client():
-    def __init__(self, id, train_loader, c_args):
-        if c_args['dataset'] == "cifar":
-            self.model = model.Client_model_cifar() 
-            self.auxiliary_model = model.Auxiliary_model_cifar()
-        elif c_args['dataset'] == "femnist":
-            self.model = model.Client_model_femnist() 
-            self.auxiliary_model = model.Auxiliary_model_femnist()
-        self.criterion = nn.NLLLoss().to(DEVICE)
-        self.optimizer = optim.SGD(self.model.parameters(), lr=c_args["lr"])       
-        self.auxiliary_criterion = nn.NLLLoss().to(DEVICE)
-        self.auxiliary_optimizer = optim.SGD(self.auxiliary_model.parameters(), lr=c_args["lr"])
-        
-        self.train_loader = train_loader
-        self.epochs = c_args['epoch']
-        self.dataset_size = len(self.train_loader) * c_args["batch_size"] 
-
-class Server():
-    def __init__(self, c_args):
-        if c_args['dataset'] == "cifar":
-            self.model = model.Server_model_cifar()
-        elif c_args['dataset'] == "femnist":
-            self.model = model.Server_model_femnist()
-        self.criterion = nn.NLLLoss().to(DEVICE)
-        self.alignLoss = nn.MSELoss().to(DEVICE)
-        self.optimizer = optim.SGD(self.model.parameters(), lr=c_args["lr"])
-
 def init_all(model, init_func, *params, **kwargs):
     for p in model.parameters():
         init_func(p, *params, **kwargs)   
@@ -71,7 +53,7 @@ def calculate_load(model):
 
 if __name__ == '__main__':    
     ## get system configs
-    args = options.args_parser('CSE_FSL')    #---------todo
+    args = options.args_parser('FSL-Approx')    #---------todo
     u_args, s_args, c_args = options.group_args(args) #---------todo
     utils.show_utils(u_args) #---------todo
     
@@ -83,32 +65,53 @@ if __name__ == '__main__':
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
+    assert s_args["activated"] <= s_args["client"], \
+        f"# activated clients {s_args['activated']} is greater than # clients {s_args['client']}"
+
     ## process dataset
     trainSet, testSet = utils.get_dataset(s_args, u_args) 
     client_train_set, client_test_set = utils.depart_dataset(u_args, s_args, trainSet, testSet)
 
-    
     trainLoader_list = []
     for i in range(s_args["activated"]):
         train_set = client_train_set[i]["idxs"]
-        trainLoader_list.append(DataLoader(utils.DatasetSplit(trainSet, train_set), batch_size=c_args['batch_size'], shuffle=True, pin_memory=False))
-    
+        trainLoader_list.append(
+            DataLoader(
+                utils.DatasetSplit(trainSet, train_set),
+                batch_size=c_args['batch_size'],
+                shuffle=True, pin_memory=False)
+        )
     
     testLoader = DataLoader(testSet, batch_size=c_args['batch_size'], shuffle=False, pin_memory=False)
     
     
     # Define the server, and the list of client copies
-    server = Server(c_args)
+    server = serv.Server(serv.Server_model_cifar(), s_args, device=DEVICE)
     client_copy_list = []
     
     for i in range(s_args["activated"]):   
-        client_copy_list.append(Client(i, trainLoader_list[i], c_args))
+        client_copy_list.append(client.Client(
+            i, trainLoader_list[i],
+            client.Client_model_cifar(),
+            #aux_models.LinearAuxiliaryModel(2305, server, device=DEVICE, bias=True),
+            #aux_models.NNAuxiliaryModel(
+            #    2305, server, device=DEVICE, n_hidden=None,
+            #    align_iters=20, align_step=1e-4
+            #),
+            aux_models.NNGradScalarAuxiliaryModel(
+                2304, 10, server, device=DEVICE, n_hidden=None,
+                align_iters=5000, align_step=3e-3
+            ),
+            c_args, device=DEVICE
+        ))
     
-    # Initial client model
-    # Initial server model
+    # Initial client & server model
     init_all(client_copy_list[0].model, torch.nn.init.normal_, mean=0., std=0.05) 
     init_all(client_copy_list[0].auxiliary_model, torch.nn.init.normal_, mean=0., std=0.05) 
     init_all(server.model, torch.nn.init.normal_, mean=0., std=0.05) 
+    #init_all(client_copy_list[0].model, torch.nn.init.kaiming_normal_) 
+    #init_all(client_copy_list[0].auxiliary_model, torch.nn.init.normal_, mean=0., std=1.0) 
+    #init_all(server.model, torch.nn.init.kaiming_normal_) 
     
         
     for i in range(s_args["activated"]):
@@ -135,203 +138,259 @@ if __name__ == '__main__':
     comm_load_list = []
     start = time.time()
     comm_load = 0
-    batch_max_round = total // c_args["batch_size"] // s_args["activated"]
-    
-    while r < s_args["round"]:
-        # Send data samples to each client
-        it_list = []
+
+    assert c_args['batch_size'] <= total  // s_args["activated"], \
+        f"Chosen batch_size per client ({c_args['batch_size']}) is larger than the dataset size per client ({total // s_args['activated']})."
+
+    # TODO: Right now the code assumes activated clients = total number of clients.
+    # May need to change this later
+
+    it_list = [iter(tl) for tl in trainLoader_list]
+    num_resets = [0 for _ in range(s_args['activated'])]
+
+    # WARM START
+    print("----------------------------- WARM START USING SL -----------------------------------")
+    print(f"Configured epochs = {WARM_START_EPOCHS}")
+
+    client_optim_ws = [optim.Adam(c.model.parameters(), lr=1e-3) for c in client_copy_list]
+    server_optim_ws = optim.Adam(server.model.parameters(), lr=1e-3)
+
+    for r in range(WARM_START_EPOCHS):
         for i in range(s_args["activated"]):
-            it_list.append(iter(trainLoader_list[i]))
-        batch_round = u_args['batch_round']
-        max_batch = batch_round
-        client_i = 0
-        start_index = 0
-        
-        # Loop through either all activated clients or the batches distributed
-        # (whichever comes first)
-        while max_batch <= batch_max_round and client_i < s_args["activated"]: 
-            cur_client_index = start_index
-            while cur_client_index < batch_max_round and cur_client_index < max_batch: 
-                # For a given client, iterate through the samples it needs to train on and send it to device
-                samples, labels = next(it_list[client_i])
-                client_copy_list[client_i].optimizer.zero_grad()
-                samples, labels = samples.to(DEVICE).float(), labels.to(DEVICE).long()
-                
+            for k, (samples, labels) in enumerate(trainLoader_list[i]):
+
                 # client feedforward
-                splitting_output = client_copy_list[client_i].model(samples)
-                local_smashed_data = splitting_output.clone().detach().requires_grad_(True)
-                smashed_data = splitting_output.clone().detach().requires_grad_(True)
-                
-                # Copies of the smashed data for alignment later
-                smashed_clone1 = splitting_output.clone().detach().requires_grad_(True)
-                smashed_clone2 = splitting_output.clone().detach().requires_grad_(True)
-                    
-                
-                # client calculates the local loss and do the backpropagation and update auxiliary model weights
-                client_copy_list[client_i].auxiliary_optimizer.zero_grad()
-                local_output = client_copy_list[client_i].auxiliary_model(local_smashed_data) 
-                local_loss = client_copy_list[client_i].auxiliary_criterion(local_output, labels)
-                local_loss.backward()  
-                client_copy_list[client_i].auxiliary_optimizer.step()
+                if USE_64BIT:
+                    samples, labels = samples.to(DEVICE).double(), labels.to(DEVICE).long()
+                else:
+                    samples, labels = samples.to(DEVICE).float(), labels.to(DEVICE).long()
+                client_optim_ws[i].zero_grad()
+                server_optim_ws.zero_grad()
 
-                # client backpropagation and update client-side model weights
-                gradient = local_smashed_data.grad
-                splitting_output.backward(gradient)
-                client_copy_list[client_i].optimizer.step() 
-                    
-                # server feedforward, calculate loss, backpropagation and update server-side model weights 
-                if cur_client_index == max_batch - 1:
-                    server.optimizer.zero_grad()
-                    comm_load += smashed_data.numel() * 4   # float32 = 4 bytes
-                    output = server.model(smashed_data) 
-                    loss = server.criterion(output, labels)
-                            
-                    loss.backward()       
-                    server.optimizer.step() 
-    
-                    # Do alignment every l steps
-                    if r % l == 0:  
-            
-                        # TODO: Check if the loss backprop on gradient diff actually changes the underlying model parameters
-                        # this stores a copy of the model parameters
-                        # auxClone = copy.deepcopy(client_copy_list[client_i].auxiliary_model)
-                        
-                        # for param in client_copy_list[client_i].auxiliary_model.parameters():
-                        #     param.data = nn.parameter.Parameter(torch.ones_like(param))
+                # pass smashed data through full model 
+                splitting_output = client_copy_list[i].model(samples)
+                output = server.model(splitting_output) 
+                loss = server.criterion(output, labels)
+                loss.backward()
+                server_optim_ws.step()
+                client_optim_ws[i].step()
 
-                        # Following section adapted slightly from https://github.com/caogang/wgan-gp/blob/ae47a185ed2e938c39cf3eb2f06b32dc1b6a2064/gan_mnist.py#L146,
-                        #   under the autograd.grad part
-                        
-                        # Run the sample through the auxilary model again and get the auxilary gradients
-                        client_copy_list[client_i].auxiliary_optimizer.zero_grad()
-                        aux_Out = client_copy_list[client_i].auxiliary_model(smashed_clone1) 
-                        
-                        # Get gradients of auxilary model for the cut layer
-                        aux_Gradients = autograd.grad(outputs = aux_Out, inputs = smashed_clone1, 
-                            grad_outputs=torch.ones(aux_Out.size()).to(DEVICE), 
-                            create_graph=True, retain_graph=True)[0]
-                        
-                        # Run the sample through the server model to get desired server gradients
-                        server.optimizer.zero_grad()
-                        server_Out = server.model(smashed_clone2) 
-                        
-                        # Get gradients of server for the cut layer
-                        server_Gradients = autograd.grad(outputs = server_Out, inputs = smashed_clone2, 
-                            grad_outputs = torch.ones(server_Out.size()).to(DEVICE))[0]
-                        
-                        # Define a criterion to minimize the square difference of gradients at the cut layer
-                        grad_MSE = torch.nn.MSELoss()
-
-                        # Set up the loss function 
-                        grad_Loss = grad_MSE(aux_Gradients, server_Gradients)
-                        
-                        # Calculate the gradients with respect to model weights 
-                        # (In this case, we only need to find these for the auxilary model
-                        # since we don't update the server during alignment
-                        grad_Loss.backward()
-                        
-                        # Update auxilary model
-                        client_copy_list[client_i].auxiliary_optimizer.step()
-
-                        # Doesn't do anything but zero_grad is to prevent weird bugs that might show up
-                        server.optimizer.zero_grad()
-                        
-                        ## Print out the gradients for our auxilary model (like 2nd order derivatives)
-                        ## from https://discuss.pytorch.org/t/how-to-calculate-2nd-derivative-of-a-likelihood-function/15085/3
-                        # for name, param in client_copy_list[client_i].auxiliary_model.named_parameters():
-                        #     print(name, param.grad)
-                        
-                        # # Check if the gradients are the same
-                        # # TODO: Remove when we figure it out
-                        # for p1, p2 in zip(auxClone.parameters(), client_copy_list[client_i].auxiliary_model.parameters()):
-                        #     if p1.data.ne(p2.data).sum() > 0:
-                        #         print("Models are different!")
-                        #         break
-                                
-                        #print("Models are the same")
-                        # if (grad_Loss < 0.03):
-                        #     print("... but Aux_grad and serv_grad are the essentially the same as well")
-
-                cur_client_index += 1
-            
-            if client_i == s_args["activated"] - 1:
-                client_i = 0
-                start_index += batch_round
-                max_batch += batch_round
-            else:
-                client_i += 1
-                    
-                    
-
-        # ===========================================================================================
-        # Model Aggregation (weighted)
-        # ===========================================================================================
-
-        # Initial the aggregated model and its weights
+        # aggregate client model
         aggregated_client = copy.deepcopy(client_copy_list[0].model)
         aggregated_client_weights = aggregated_client.state_dict()
-        aggregated_client_auxiliary = copy.deepcopy(client_copy_list[0].auxiliary_model)
-        aggregated_client_weights_auxiliary = aggregated_client_auxiliary.state_dict()
 
         for key in aggregated_client_weights:
             aggregated_client_weights[key] = client_copy_list[0].model.state_dict()[key] * factor[0]
-        for key in aggregated_client_weights_auxiliary:
-            aggregated_client_weights_auxiliary[key] = client_copy_list[0].auxiliary_model.state_dict()[key] * factor[0]
 
         for i in range(1, s_args["activated"]):
             for key in aggregated_client_weights:
                 aggregated_client_weights[key] += client_copy_list[i].model.state_dict()[key] * factor[i]
-            for key in aggregated_client_weights_auxiliary:
-                aggregated_client_weights_auxiliary[key] += client_copy_list[i].auxiliary_model.state_dict()[key] * factor[i]
-    
 
         # Update client model weights and auxiliary weights
         for i in range(s_args["activated"]):
             client_copy_list[i].model.load_state_dict(aggregated_client_weights)
-            client_copy_list[i].auxiliary_model.load_state_dict(aggregated_client_weights_auxiliary)
-            comm_load += 2 * calculate_load(client_copy_list[i].model)
-            comm_load += 2 * calculate_load(client_copy_list[i].auxiliary_model)
-
             
-        # ===========================================================================================
         # Inference
-        # ===========================================================================================
         aggregated_client.to(DEVICE)
         aggregated_client.load_state_dict(aggregated_client_weights)
         test_correct = 0
         test_loss = []
-        for samples, labels in testLoader:
-            samples, labels = samples.to(DEVICE).float(), labels.to(DEVICE).long()
-            splitting_output = aggregated_client(samples)
-            output = server.model(splitting_output)
-            batch_loss = server.criterion(output, labels)
-            test_loss.append(batch_loss.item())
-            _, predicted = torch.max(output.data, 1)
-            test_correct += predicted.eq(labels.view_as(predicted)).sum().item()
-        loss = sum(test_loss) / len(test_loss)
-        print(
-            '\nRound {}, for the weighted aggregated final model, testing loss: {:.2f}, testing acc: {:.2f}%  ({}/{})'
-                .format(r, loss, 100. * test_correct / len(testLoader.dataset), test_correct, len(testLoader.dataset)))
+        with torch.no_grad():
+            for samples, labels in testLoader:
+                if USE_64BIT:
+                    samples, labels = samples.to(DEVICE).double(), labels.to(DEVICE).long()
+                else:
+                    samples, labels = samples.to(DEVICE).float(), labels.to(DEVICE).long()
+                splitting_output = aggregated_client(samples)
+                output = server.model(splitting_output)
+                batch_loss = server.criterion(output, labels)
+                test_loss.append(batch_loss.item())
+                _, predicted = torch.max(output.data, 1)
+                test_correct += predicted.eq(labels.view_as(predicted)).sum().item()
+            loss = sum(test_loss) / len(test_loss)
+            print('WS Round {}, testing loss: {:.2f}, testing acc: {:.2f}%'
+                    .format(r, loss, 100. * test_correct / len(testLoader.dataset)))
+
+    print("-------------------------------------------------------------------------------------")
+
+    set_mark = False
+    dbg_saved_aux_params = [[] for _ in range(s_args['activated'])]
+    for r in range(s_args["round"]):
+        for i in range(s_args["activated"]):
+            for k in range(u_args["batch_round"]):
+
+                # check if data iterator has finished iterating current cycle
+                if (r * u_args["batch_round"] + k) == (num_resets[i] + 1) * len(it_list[i]):
+                    num_resets[i] += 1
+                    it_list[i] = iter(trainLoader_list[i])
+
+                # sample dataset
+                #batch_count[i] += 1
+                samples, labels = next(it_list[i])
+                if USE_64BIT:
+                    samples, labels = samples.to(DEVICE).double(), labels.to(DEVICE).long()
+                else:
+                    samples, labels = samples.to(DEVICE).float(), labels.to(DEVICE).long()
+                
+                # client feedforward
+                client_copy_list[i].optimizer.zero_grad()
+                splitting_output = client_copy_list[i].model(samples)
+                local_smashed_data = splitting_output.clone().detach().requires_grad_(True)
+
+                # contact server and perform alignment at every l^th round and first local iteration
+                if r % l == 0 and k == 0:
+
+                    if DEBUG: print(f" ------------ ALIGNMENT <R {r:2d}, C {i:2d}, k {k:2d}> -----------------")
+                    smashed_data = splitting_output.clone().detach().requires_grad_(True)
+                    comm_load += smashed_data.numel() * 4   # float32 = 4 bytes
+
+                    # pass smashed data through server
+                    server.optimizer.zero_grad()
+                    output = server.model(smashed_data) 
+                    loss = server.criterion(output, labels)
+                    loss.backward()
+                    server.optimizer.step()
+
+                    # save smashed data to memory
+                    client_copy_list[i].auxiliary_model.add_datapoint(
+                        local_smashed_data.clone().detach(), labels
+                    )
+
+                    # recompute gradients of smashed data
+                    client_copy_list[i].auxiliary_model.refresh_data()
+
+                    # Debug the newly computed grad approximation
+                    if DEBUG:
+                        set_mark = True
+                        client_copy_list[i].auxiliary_model.debug_grad_nmse(
+                            local_smashed_data, labels,
+                            pre=f' -- [before align] <round {r:2d}, client {i:2d}, batch index {k:2d}>'
+                        )
+               
+                    # perform alignment for current client
+                    client_copy_list[i].auxiliary_model.align()
+
+                    # debugging if server remains fixed until next update
+                    dbg_saved_server_params = [p.clone().detach() for p in server.model.parameters()]
+                    dbg_saved_aux_params[i] = [p.clone().detach() for p in client_copy_list[i].auxiliary_model.parameters()]
+
+                # client backpropagation and update client-side model weights
+                #client_copy_list[i].auxiliary_optimizer.zero_grad()
+                client_grad_approx = client_copy_list[i].auxiliary_model(local_smashed_data, labels)
+
+                # Debug the newly computed grad approximation
+                if set_mark and r % l == 0: 
+                    set_mark = False
+                    client_copy_list[i].auxiliary_model.debug_grad_nmse(
+                        local_smashed_data, labels,
+                        pre=f' -- [after align] <round {r:2d}, client {i:2d}, batch index {k:2d}>'
+                    )
+                    if DEBUG:  print(f" -----------------------------------------------------------------------")
+                
+                # for debugging ********
+                if DEBUG:
+                    def assert_server_model_identical():
+                        for p1, p2 in zip(dbg_saved_server_params, server.model.parameters()):
+                            assert torch.allclose(p1, p2), "Server model unintentionally changed!!"
+                    def assert_aux_models_identical():
+                        for p1, p2 in zip(dbg_saved_aux_params[i], client_copy_list[i].auxiliary_model.parameters()):
+                            assert torch.allclose(p1, p2), f"Auxiliary model for client {i} unintentionally changed!!"
+                    assert_server_model_identical()
+                    if not AGGREGATE_AUXILIARY_MODELS: assert_aux_models_identical()
+                    client_copy_list[i].auxiliary_model.debug_grad_nmse(
+                        local_smashed_data, labels,
+                        pre=f' -- [round {r:2d}, client {i:2d}, batch index {k:2d}]'
+                    )
+
+                splitting_output.backward(client_grad_approx)
+                client_copy_list[i].optimizer.step()
+
+                # Test on training data (debugging)
+                with torch.no_grad():
+                    tr_loss = []
+                    tr_correct = 0
+                    for samples, labels in trainLoader_list[i]:
+                        if USE_64BIT:
+                            samples, labels = samples.to(DEVICE).double(), labels.to(DEVICE).long()
+                        else:
+                            samples, labels = samples.to(DEVICE).float(), labels.to(DEVICE).long()
+                        output = server.model(client_copy_list[i].model(samples))
+                        batch_loss = server.criterion(output, labels)
+                        tr_loss.append(batch_loss.item())
+                        _, predicted = torch.max(output.data, 1)
+                        tr_correct += predicted.eq(labels.view_as(predicted)).sum().item()
+                    tr_loss = sum(tr_loss) / len(tr_loss)
+                    print(f' > [R{r:2d} C{i:2d} k{k:2d}] tr. loss: {tr_loss:.2f}, tr acc: {100. * tr_correct / len(trainLoader_list[i].dataset):.2f}%')
+
+
+        # Model Aggregation (weighted)
+        aggregated_client = copy.deepcopy(client_copy_list[0].model)
+        aggregated_client_weights = aggregated_client.state_dict()
+
+        for key in aggregated_client_weights:
+            aggregated_client_weights[key] = client_copy_list[0].model.state_dict()[key] * factor[0]
+
+        if AGGREGATE_AUXILIARY_MODELS:
+            aggregated_client_auxiliary = copy.deepcopy(client_copy_list[0].auxiliary_model)
+            aggregated_client_weights_auxiliary = aggregated_client_auxiliary.state_dict()
+
+            for key in aggregated_client_weights_auxiliary:
+                aggregated_client_weights_auxiliary[key] = client_copy_list[0].auxiliary_model.state_dict()[key] * factor[0]
+
+        for i in range(1, s_args["activated"]):
+            for key in aggregated_client_weights:
+                aggregated_client_weights[key] += client_copy_list[i].model.state_dict()[key] * factor[i]
+            if AGGREGATE_AUXILIARY_MODELS:
+                for key in aggregated_client_weights_auxiliary:
+                    aggregated_client_weights_auxiliary[key] += client_copy_list[i].auxiliary_model.state_dict()[key] * factor[i]
+
+        # Update client model weights and auxiliary weights
+        for i in range(s_args["activated"]):
+            client_copy_list[i].model.load_state_dict(aggregated_client_weights)
+            comm_load += 2 * calculate_load(client_copy_list[i].model)
+            if AGGREGATE_AUXILIARY_MODELS:
+                client_copy_list[i].auxiliary_model.load_state_dict(aggregated_client_weights_auxiliary)
+                comm_load += 2 * calculate_load(client_copy_list[i].auxiliary_model)
+
+        # Inference
+        aggregated_client.to(DEVICE)
+        aggregated_client.load_state_dict(aggregated_client_weights)
+        test_correct = 0
+        test_loss = []
+        with torch.no_grad():
+            for samples, labels in testLoader:
+                if USE_64BIT:
+                    samples, labels = samples.to(DEVICE).double(), labels.to(DEVICE).long()
+                else:
+                    samples, labels = samples.to(DEVICE).float(), labels.to(DEVICE).long()
+                splitting_output = aggregated_client(samples)
+                output = server.model(splitting_output)
+                batch_loss = server.criterion(output, labels)
+                test_loss.append(batch_loss.item())
+                _, predicted = torch.max(output.data, 1)
+                test_correct += predicted.eq(labels.view_as(predicted)).sum().item()
+            loss = sum(test_loss) / len(test_loss)
+            print(' > R {:2d}, for the weighted aggregated final model, testing loss: {:.2f}, testing acc: {:.2f}%  ({:5d}/{})'
+                    .format(r, loss, 100. * test_correct / len(testLoader.dataset), test_correct, len(testLoader.dataset)))
 
         acc_list.append(test_correct / len(testLoader.dataset))
         loss_list.append(loss)
         comm_load_list.append(comm_load)
-        r += 1
+
 
     print('The total running time for all rounds is ', round(time.time() - start, 2), 'seconds')
     print("Testing accuracy:", acc_list)
     print("Testing loss:", loss_list)
     
-    '''
-        Save reults to .json files.
-    '''
+    # Save reults to .json files.
     results = {'test_loss': loss_list, 'test_acc' : acc_list,
                'comm_load' : comm_load_list, 'step': s_args['t_round']}
 
-    file_name = os.path.join(u_args['save_path'], 'results.json')
-    with open(file_name, 'w') as outf:
-        json.dump(results, outf)
-        print(f"\033[1;36m[NOTICE] Saved results to '{file_name}'.\033[0m")
+    if u_args['save']:
+        file_name = os.path.join(u_args['save_path'], 'results.json')
+        with open(file_name, 'w') as outf:
+            json.dump(results, outf)
+            print(f"\033[1;36m[NOTICE] Saved results to '{file_name}'.\033[0m")
         
-    metrics_file = os.path.join(u_args['save_path'], 'metrics.pt')
-    torch.save([acc_list, loss_list, comm_load_list], metrics_file)
+        metrics_file = os.path.join(u_args['save_path'], 'metrics.pt')
+        torch.save([acc_list, loss_list, comm_load_list], metrics_file)
