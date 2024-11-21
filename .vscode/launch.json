@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python Debugger: Current File",
+            "name": "Python Debugger: FSL_main_linear",
             "type": "debugpy",
             "request": "launch",
             "cwd"   : "${workspaceFolder}/src",
@@ -11,17 +11,17 @@
             "args": [
                 "--dataset", "cifar",
                 "-seed", "200", 
-                "-K", "2",
+                "-K", "3",
                 "-L", "1",
-                "-U", "2",
-                "-B", "2400",
+                "-U", "3",
+                "-B", "100",
                 "-E", "1",
                 "-batch_round", "5",
-                "--server-lr", "0.002",
-                "--client-lr", "0.0004",
-                "--round", "2",
+                "--server-lr", "0.001",
+                "--client-lr", "0.001",
+                "--round", "5",
                 "--iid", "--gpu",
-                "--save"
+                //"--save"
             ]           
         }
     ]
