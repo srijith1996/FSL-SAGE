@@ -19,7 +19,8 @@ class Server():
         #s_args["activated"]))
         self.optimizer = optim.Adam(
             self.model.parameters(),
-            lr=(s_args["lr"] / s_args["activated"])
+            #lr=(s_args["lr"] / s_args["activated"])
+            lr=s_args["lr"]
         )
 
 # ------------------------------------------------------------------------------

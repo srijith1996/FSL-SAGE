@@ -2,11 +2,12 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python Debugger: FSL_main_linear",
+            "name": "Python Debugger: FSL_SAGE_main",
             "type": "debugpy",
             "request": "launch",
             "cwd"   : "${workspaceFolder}/src",
-            "program": "${workspaceFolder}/src/FSL_main_linear.py",
+            //"program": "${workspaceFolder}/src/FSL_SAGE_main.py",
+            "program": "${file}",
             "console": "integratedTerminal",
             "args": [
                 "--dataset", "cifar",

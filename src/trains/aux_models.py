@@ -230,9 +230,12 @@ class NNAuxiliaryModel(AuxiliaryModel):
 class GradScalarAuxiliaryModel(AuxiliaryModel):
 
     def __init__(self,
-        server, device='cpu', align_epochs=5
+        server, device='cpu', align_epochs=5, align_batch_size=100,
+        max_dataset_size=1000
     ):
-        super(GradScalarAuxiliaryModel, self).__init__(server, device)
+        super(GradScalarAuxiliaryModel, self).__init__(
+            server, device, max_dataset_size, align_batch_size
+        )
         self.align_epochs = align_epochs
 
     @abstractmethod
@@ -270,10 +273,11 @@ class GradScalarAuxiliaryModel(AuxiliaryModel):
 class NNGradScalarAuxiliaryModel(GradScalarAuxiliaryModel):
     def __init__(self,
         n_input, n_output, server, device='cpu', n_hidden=None,
-        align_epochs=5, align_step=1e-3, 
+        align_epochs=5, align_step=1e-3, align_batch_size=100,
+        max_dataset_size=1000
     ):
         super(NNGradScalarAuxiliaryModel, self).__init__(
-            server, device, align_epochs
+            server, device, align_epochs, align_batch_size, max_dataset_size
         )
 
         if n_hidden is None:
