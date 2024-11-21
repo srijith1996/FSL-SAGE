@@ -19,7 +19,8 @@ class Server():
         #s_args["activated"]))
         self.optimizer = optim.Adam(
             self.model.parameters(),
-            lr=(s_args["lr"] / s_args["activated"])
+            #lr=(s_args["lr"] / s_args["activated"])
+            lr=s_args["lr"]
         )
 
 # ------------------------------------------------------------------------------
@@ -27,6 +28,7 @@ class Server_model_cifar(nn.Module):
     def __init__(self):
         super(Server_model_cifar, self).__init__()
         self.fc1 = nn.Linear(in_features=6 * 6 * 64, out_features=384)
+        #self.fc1 = nn.Linear(in_features=4096, out_features=384)
         self.fc2 = nn.Linear(in_features=384, out_features=192)
         self.olayer = nn.Linear(in_features=192, out_features=10)
 

@@ -84,9 +84,14 @@ def main(u_args, s_args, c_args):
         client_copy_list.append(client.Client(
             i, trainLoader_list[i],
             client.Client_model_cifar(),
-            aux_models.VanillaFSL(
-                6 * 6 * 64, 10, server, device=DEVICE, n_hidden=None,
-                align_iters=5000, align_step=3e-3
+            #aux_models.LinearAuxiliaryModel(2305, server, device=DEVICE, bias=True),
+            #aux_models.LinearGradScalarAuxiliaryModel(
+            #    2304, 10, server, device=DEVICE, align_epochs=100, align_step=5e-2
+            #),
+            aux_models.NNGradScalarAuxiliaryModel(
+                2304, 10, server, device=DEVICE, n_hidden=2304,
+                align_epochs=100, align_step=1e-3, align_batch_size=1000,
+                max_dataset_size=1000
             ),
             c_args, device=DEVICE
         ))
@@ -141,8 +146,8 @@ def main(u_args, s_args, c_args):
     # TODO: Right now the code assumes activated clients = total number of clients.
     # May need to change this later
 
-    # it_list = [iter(tl) for tl in trainLoader_list]
-    it_list = []
+    #it_list = [iter(tl) for tl in trainLoader_list]
+    #num_resets = [0 for _ in range(s_args['activated'])]
 
     # WARM START
     if WARM_START:
@@ -153,62 +158,131 @@ def main(u_args, s_args, c_args):
             device=DEVICE
         )
         logging.info(f"After warm start: Test loss: {tloss[-1]:.2f}, Test accuracy: {tacc:.2f}")
+        logging.info("-------------------------------------------------------------------------------------")
 
         # reload the server model and optimizer
         server = serv.Server(serv.Server_model_cifar(), s_args, device=DEVICE)
         server.model.load_state_dict(server_model.state_dict())
         server.model.to(DEVICE)
 
-        logging.info("-------------------------------------------------------------------------------------")
-
-    batch_max_round = total // s_args["activated"] // c_args["batch_size"]
     set_mark = False
     dbg_saved_aux_params = [[] for _ in range(s_args['activated'])]
     for r in range(s_args["round"]):
-        it_list = []
+        for i in range(s_args["activated"]):
+            #for k in range(u_args["batch_round"]):
+            for k, (samples, labels) in enumerate(trainLoader_list[i]):
 
-        for i in range(s_args['activated']):
-            it_list.append(iter(trainLoader_list[i]))
+                # check if data iterator has finished iterating current cycle
+                #if (r * u_args["batch_round"] + k) == (num_resets[i] + 1) * len(it_list[i]):
+                #    num_resets[i] += 1
+                #    it_list[i] = iter(trainLoader_list[i])
 
-        # round_make = u_args["batch_round"]
-        # assert False, f"Rounds are {batch_max_round // round_make}"
-        for k in range(batch_max_round // u_args["batch_round"]):
-            for i in range(s_args["activated"]):
-                for b in range(u_args["batch_round"]):
-                    # if (r * u_args["batch_round"] + k) == (num_resets[i] + 1) * len(it_list[i]):
-                    #     num_resets[i] += 1
-                    #     it_list[i] = iter(trainLoader_list[i])
-
-                    # sample dataset
-                    #batch_count[i] += 1
-                    samples, labels = next(it_list[i])
-                    if USE_64BIT:
-                        samples, labels = samples.to(DEVICE).double(), labels.to(DEVICE).long()
-                    else:
-                        samples, labels = samples.to(DEVICE).float(), labels.to(DEVICE).long()
-                    
-                    # client feedforward
-                    client_copy_list[i].optimizer.zero_grad()
-                    splitting_output = client_copy_list[i].model(samples)
-                    local_smashed_data = splitting_output.clone().detach().requires_grad_(True)
-                    smashed_data = splitting_output.clone().detach().requires_grad_(True)
-
-                    # client backpropagation and update client-side model weights
-                    client_copy_list[i].auxiliary_model.optimizer.zero_grad()
-                    out = client_copy_list[i].auxiliary_model(local_smashed_data, labels) # TODO CHECK
-                    out.backward()
-                    client_copy_list[i].auxiliary_model.optimizer.step()
-
-                    splitting_output.backward(local_smashed_data.grad)
+                #samples, labels = next(it_list[i])
+                samples = samples.to(DEVICE).double() if USE_64BIT else \
+                    samples.to(DEVICE).float()
+                labels = labels.to(DEVICE).long()
                 
-                    client_copy_list[i].optimizer.step()
+                # client feedforward
+                client_copy_list[i].optimizer.zero_grad()
+                splitting_output = client_copy_list[i].model(samples)
+                local_smashed_data = splitting_output.clone().detach().requires_grad_(True)
 
-                    if b == u_args["batch_round"] - 1:
-                        server.optimizer.zero_grad()
-                        output = server.model(smashed_data)
-                        s_loss = server.criterion(output, labels)
-                        s_loss.backward()
-                        server.optimizer.step()
+                # contact server every p steps
+                if k % u_args['batch_round'] == 0:
+
+                    #logging.debug(f"R{r:2d} C{i:2d} B{k:2d} Sending smashed data to server")
+                    smashed_data = splitting_output.clone().detach().requires_grad_(True)
+                    #comm_load += smashed_data.numel() * 4   # float32 = 4 bytes
+
+                    # pass smashed data through server
+                    server.optimizer.zero_grad()
+                    output = server.model(smashed_data) 
+                    loss = server.criterion(output, labels)
+                    loss.backward()
+                    server.optimizer.step()
+
+                    # save smashed data to memory
+                    client_copy_list[i].auxiliary_model.add_datapoint(
+                        splitting_output.clone().detach(), labels
+                    )
+
+                # perform alignment at every l^th round and first local iteration
+                if r % l == 0 and k == 0:
+
+                    if DEBUG: logging.debug(f" ------------ ALIGNMENT <R {r:2d}, C {i:2d}, k {k:2d}> -----------------")
+                    # recompute gradients of smashed data
+                    client_copy_list[i].auxiliary_model.refresh_data()
+
+                    # Debug the newly computed grad approximation
+                    if DEBUG:
+                        set_mark = True
+                        client_copy_list[i].auxiliary_model.debug_grad_nmse(
+                            local_smashed_data, labels,
+                            pre=f' -- [before align] <round {r:2d}, client {i:2d}, batch index {k:2d}>'
+                        )
+               
+                    # perform alignment for current client
+                    client_copy_list[i].auxiliary_model.align()
+
+                    # debugging if server remains fixed until next update
+                    dbg_saved_server_params = [p.clone().detach() for p in server.model.parameters()]
+                    dbg_saved_aux_params[i] = [p.clone().detach() for p in client_copy_list[i].auxiliary_model.parameters()]
+
+                # client backpropagation and update client-side model weights
+                #client_copy_list[i].auxiliary_optimizer.zero_grad()
+                client_grad_approx = client_copy_list[i].auxiliary_model(local_smashed_data, labels)
+
+                # Debug the newly computed grad approximation
+                if set_mark and r % l == 0: 
+                    set_mark = False
+                    client_copy_list[i].auxiliary_model.debug_grad_nmse(
+                        local_smashed_data, labels,
+                        pre=f' -- [after align] <round {r:2d}, client {i:2d}, batch index {k:2d}>'
+                    )
+                    if DEBUG:  logging.debug(f" -----------------------------------------------------------------------")
+                
+                # for debugging ********
+                if False and DEBUG:
+                    def assert_server_model_identical():
+                        for p1, p2 in zip(dbg_saved_server_params, server.model.parameters()):
+                            assert torch.allclose(p1, p2), "Server model unintentionally changed!!"
+                    def assert_aux_models_identical():
+                        for p1, p2 in zip(dbg_saved_aux_params[i], client_copy_list[i].auxiliary_model.parameters()):
+                            assert torch.allclose(p1, p2), f"Auxiliary model for client {i} unintentionally changed!!"
+                    assert_server_model_identical()
+                    if not AGGREGATE_AUXILIARY_MODELS: assert_aux_models_identical()
+                    mse, nmse = client_copy_list[i].auxiliary_model.debug_grad_nmse(
+                        local_smashed_data, labels,
+                        pre=f' -- [round {r:2d}, client {i:2d}, batch index {k:2d}]'
+                    )
+                    tr_grad_mse_per_client_iter[i].append(mse.item())
+                    tr_grad_nmse_per_client_iter[i].append(nmse.item())
+
+                    # Test on training data
+                    with torch.no_grad():
+                        tr_loss = []
+                        tr_correct = 0
+
+                        for samples, labels in trainLoader_list[i]:
+                            samples = samples.to(DEVICE).double() if USE_64BIT else samples.to(DEVICE).float()
+                            labels = labels.to(DEVICE).long()
+                            output = server.model(aggregated_client(samples))
+                            batch_loss = server.criterion(output, labels)
+                            tr_loss.append(batch_loss.item())
+                            _, predicted = torch.max(output.data, 1)
+                            tr_correct += predicted.eq(labels.view_as(predicted)).sum().item()
+
+                        tr_loss = sum(tr_loss) / len(tr_loss)
+                        total = len(trainLoader_list[i].dataset)
+                        tr_acc = tr_correct / total
+                        logging.debug(f' tr. loss: {tr_loss:.2f}, tr. acc: {100. * tr_acc:.2f}%')
+
+                        tr_loss_per_client_iter[i].append(tr_loss)
+                        tr_acc_per_client_iter[i].append(tr_acc)
+
+                splitting_output.backward(client_grad_approx)
+                client_copy_list[i].optimizer.step()
+
 
         # Model Aggregation (weighted)
         aggregated_client = copy.deepcopy(client_copy_list[0].model)
@@ -254,19 +328,34 @@ def main(u_args, s_args, c_args):
                 test_loss.append(batch_loss.item())
                 _, predicted = torch.max(output.data, 1)
                 test_correct += predicted.eq(labels.view_as(predicted)).sum().item()
-            loss = sum(test_loss) / len(test_loss)
-            print(' > R {:2d}, for the weighted aggregated final model, testing loss: {:.2f}, testing acc: {:.2f}%  ({:5d}/{})'
-                    .format(r, loss, 100. * test_correct / len(testLoader.dataset), test_correct, len(testLoader.dataset)))
-                
-            with open("fsl-vanilla.txt", "a") as f:
-                print('\nRound {}, for the weighted aggregated final model, testing loss: {:.2f}, testing acc: {:.2f}%  ({}/{})'
-                    .format(r, loss, 100. * test_correct / len(testLoader.dataset), test_correct, len(testLoader.dataset)),
-                    file=f)
+            ts_loss = sum(test_loss) / len(test_loss)
+            ts_acc = test_correct / len(testLoader.dataset)
 
-        acc_list.append(test_correct / len(testLoader.dataset))
-        loss_list.append(loss)
+        acc_list.append(ts_acc)
+        loss_list.append(ts_loss)
         comm_load_list.append(comm_load)
 
+        # Test on training data (debugging)
+        with torch.no_grad():
+            tr_loss = []
+            tr_correct = 0
+            for i in range(s_args['activated']):
+                for samples, labels in trainLoader_list[i]:
+                    samples = samples.to(DEVICE).double() if USE_64BIT else samples.to(DEVICE).float()
+                    labels = labels.to(DEVICE).long()
+                    output = server.model(aggregated_client(samples))
+                    batch_loss = server.criterion(output, labels)
+                    tr_loss.append(batch_loss.item())
+                    _, predicted = torch.max(output.data, 1)
+                    tr_correct += predicted.eq(labels.view_as(predicted)).sum().item()
+            tr_loss = sum(tr_loss) / len(tr_loss)
+            total = sum([len(trainLoader_list[i].dataset) for i in range(s_args['activated'])])
+            tr_acc = tr_correct / total
+
+        tr_acc_list.append(tr_acc)
+        tr_loss_list.append(tr_loss)
+
+        logging.info(f' > R {r:2d}, for the weighted aggregated final model, testing loss: {ts_loss:.4e}, testing acc: {100. * ts_acc:.2f}% ({test_correct:5d}/{len(testLoader.dataset)}), training loss: {tr_loss:.2f}, training acc: {100. * tr_acc:.2f}%')
 
     logging.info(f'The total running time for all rounds is {round(time.time() - start, 2)} seconds')
 
