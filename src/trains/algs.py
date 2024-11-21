@@ -44,7 +44,7 @@ def aggregate_models(model_list, weights, device='cpu'):
 # ------------------------------------------------------------------------------
 def fed_avg(
     rounds, iters, model, criterion, train_loader_list, test_loader, factor,
-    use_64bit=False, device='cpu'
+    lr, use_64bit=False, device='cpu'
 ):
     '''Federated Averaging
 
@@ -60,6 +60,7 @@ def fed_avg(
         training set.
     test_loader - DataLoader object for test data
     factor      - Weights used in model aggregation
+    lr          - Learning rate
     use_64bit   - [optional] Use 64 bit precision
     device      - [optional] CPU or GPU to use for computation
 
@@ -68,18 +69,20 @@ def fed_avg(
     client_copy_list - List of all Client() objects after training
     aggregated_client - Aggregated PyTorch client model
     server           - Server() object after training
+    test_loss        - Loss values on test data during training
+    acc              - Accuracy values on test data during training
 
     '''
 
     # copy client models
     num_clients = len(train_loader_list)
-    clients = [copy.deepcopy(model) for _ in range(num_clients)]
-    aggregated_client = copy.deepcopy(model)
+    clients = [copy.deepcopy(model).to(device) for _ in range(num_clients)]
+    aggregated_client = copy.deepcopy(model).to(device)
 
     it_list = [iter(tl) for tl in train_loader_list]
     num_resets = [0 for _ in range(num_clients)]
 
-    model_optim = [optim.Adam(c.parameters) for c in clients]
+    model_optim = [optim.Adam(c.parameters(), lr=lr) for c in clients]
 
     for r in range(rounds):
         for i in range(num_clients):
@@ -96,7 +99,7 @@ def fed_avg(
                 labels = labels.to(device).long()
                 
                 model_optim[i].zero_grad()
-                out = clients[i].model(samples)
+                out = clients[i](samples)
                 loss = criterion(out, labels)
                 loss.backward()
                 model_optim[i].step()
@@ -131,7 +134,7 @@ def fed_avg(
 # ------------------------------------------------------------------------------
 def sl_single_server(
     rounds, iters, client_copy_list, server, train_loader_list, test_loader,
-    factor, use_64bit=False, device='cpu'
+    factor, client_lr, server_lr, use_64bit=False, device='cpu'
 ):
     '''Split Learning with single server model
 
@@ -151,6 +154,7 @@ def sl_single_server(
         training set.
     test_loader - DataLoader object for test data
     factor      - Weights used in model aggregation
+    client_lr, server_lr - Learning rates for client and server
     use_64bit   - [optional] Use 64 bit precision
     device      - [optional] CPU or GPU to use for computation
 
@@ -159,13 +163,15 @@ def sl_single_server(
     client_copy_list - List of all Client() objects after training
     aggregated_client - Aggregated PyTorch client model
     server           - Server() object after training
+    test_loss        - Loss values on test data during training
+    acc              - Accuracy values on test data during training
 
     '''
     logging.info(f"Configured rounds = {rounds}")
 
     num_clients = len(client_copy_list)
-    client_optim_ws = [optim.Adam(c.model.parameters(), lr=1e-3) for c in client_copy_list]
-    server_optim_ws = optim.Adam(server.model.parameters(), lr=1e-3)
+    client_optim_ws = [optim.Adam(c.model.parameters(), lr=client_lr) for c in client_copy_list]
+    server_optim_ws = optim.Adam(server.model.parameters(), lr=server_lr)
 
     it_list = [iter(tl) for tl in train_loader_list]
     num_resets = [0 for _ in range(num_clients)]
@@ -202,7 +208,7 @@ def sl_single_server(
 
         # Update client model weights
         for i in range(num_clients):
-            client_copy_list[i].load_state_dict(aggregated_client.state_dict())
+            client_copy_list[i].model.load_state_dict(aggregated_client.state_dict())
         
         # Inference
         if test_loader is not None:
@@ -223,12 +229,12 @@ def sl_single_server(
                 acc =  100. * test_correct / len(test_loader.dataset)
                 logging.info(f' > Round {r}, testing loss: {loss:.2f}, testing acc: {acc:.2f}%')
 
-    return client_copy_list, aggregated_client, server, test_loss, acc
+    return client_copy_list, aggregated_client, server.model, test_loss, acc
 
 # ------------------------------------------------------------------------------
 def sl_multi_server(
-    rounds, iters, client_copy_list, server,
-    train_loader_list, test_loader, factor, use_64bit=False, device='cpu'
+    rounds, iters, client_copy_list, server, train_loader_list, test_loader,
+    factor, client_lr, server_lr, use_64bit=False, device='cpu'
 ):
     '''Split Learning with one server model per client
 
@@ -248,6 +254,7 @@ def sl_multi_server(
         training set.
     test_loader - DataLoader object for test data
     factor      - Weights used in model aggregation
+    client_lr, server_lr - Learning rates for client and server
     use_64bit   - [optional] Use 64 bit precision
     device      - [optional] CPU or GPU to use for computation
 
@@ -256,14 +263,16 @@ def sl_multi_server(
     client_copy_list - list of all Client() objects after training
     aggregated_client - aggregated PyTorch client model
     aggregated_server - aggregated PyTorch server model
+    test_loss        - Loss values on test data during training
+    acc              - Accuracy values on test data during training
 
     '''
     logging.info(f"Configured rounds = {rounds}")
 
     num_clients = len(client_copy_list)
     server_copy_list = [copy.deepcopy(server) for _ in range(num_clients)]
-    client_optim_ws = [optim.Adam(c.model.parameters(), lr=1e-3) for c in client_copy_list]
-    server_optim_ws = [optim.Adam(s.model.parameters(), lr=1e-3) for s in server_copy_list]
+    client_optim_ws = [optim.Adam(c.model.parameters(), lr=client_lr) for c in client_copy_list]
+    server_optim_ws = [optim.Adam(s.model.parameters(), lr=server_lr) for s in server_copy_list]
 
     it_list = [iter(tl) for tl in train_loader_list]
     num_resets = [0 for _ in range(num_clients)]
@@ -303,10 +312,10 @@ def sl_multi_server(
 
         # Update client and server weights
         for i in range(num_clients):
-            client_copy_list[i].load_state_dict(aggregated_client.state_dict())
+            client_copy_list[i].model.load_state_dict(aggregated_client.state_dict())
         
         for i in range(num_clients):
-            server_copy_list[i].load_state_dict(aggregated_server.state_dict())
+            server_copy_list[i].model.load_state_dict(aggregated_server.state_dict())
 
         # Inference
         if test_loader is not None:

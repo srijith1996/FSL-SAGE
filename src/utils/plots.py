@@ -4,13 +4,14 @@ import logging
 def plot_final_metrics(
     tr_loss_list, tr_acc_list, tr_grad_mse_list, tr_grad_nmse_list,
     tr_loss, tr_acc, ts_loss, ts_acc,
-    plot_dir, save=True, debug=False
+    plot_dir, debug=False
 ):
 
     # doing this to avoid getting too many debug statements
     # from matplotlib
     old_log_level = logging.getLogger().level
     logging.getLogger().setLevel(logging.INFO)
+    save = (plot_dir is not None)
 
     # for training data
     if debug:

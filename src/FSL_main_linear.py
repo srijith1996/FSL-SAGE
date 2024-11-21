@@ -26,7 +26,8 @@ import logging
 # TODO: Move these to command line args
 DEBUG = True
 USE_64BIT = False
-WARM_START_EPOCHS = 5
+WARM_START = True
+WARM_START_EPOCHS = 1
 AGGREGATE_AUXILIARY_MODELS = False
 DEVICE = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
@@ -84,14 +85,13 @@ def main(u_args, s_args, c_args):
             i, trainLoader_list[i],
             client.Client_model_cifar(),
             #aux_models.LinearAuxiliaryModel(2305, server, device=DEVICE, bias=True),
-            #aux_models.NNAuxiliaryModel(
-            #    2305, server, device=DEVICE, n_hidden=None,
-            #    align_iters=20, align_step=1e-4
-            #),
-            aux_models.NNGradScalarAuxiliaryModel(
-                2304, 10, server, device=DEVICE, n_hidden=None,
-                align_iters=2000, align_step=3e-3
+            aux_models.LinearGradScalarAuxiliaryModel(
+                2304, 10, server, device=DEVICE, align_epochs=100, align_step=5e-2
             ),
+            #aux_models.NNGradScalarAuxiliaryModel(
+            #    2304, 10, server, device=DEVICE, n_hidden=2304,
+            #    align_epochs=100, align_step=1e-3
+            #),
             c_args, device=DEVICE
         ))
     
@@ -145,32 +145,38 @@ def main(u_args, s_args, c_args):
     # TODO: Right now the code assumes activated clients = total number of clients.
     # May need to change this later
 
-    it_list = [iter(tl) for tl in trainLoader_list]
-    num_resets = [0 for _ in range(s_args['activated'])]
+    #it_list = [iter(tl) for tl in trainLoader_list]
+    #num_resets = [0 for _ in range(s_args['activated'])]
 
     # WARM START
-    logging.info("----------------------------- WARM START USING SL -----------------------------------")
-    client_copy_list, aggregated_client, server = algs.sl_single_server(
-        WARM_START_EPOCHS, len(trainLoader_list[0]), client_copy_list, server,
-        trainLoader_list, testLoader, factor, testLoader, use_64bit=USE_64BIT,
-        device=DEVICE
-    )
-    logging.info("-------------------------------------------------------------------------------------")
+    if WARM_START:
+        logging.info("----------------------------- WARM START USING SL -----------------------------------")
+        client_copy_list, aggregated_client, server_model, tloss, tacc = algs.sl_single_server(
+            WARM_START_EPOCHS, len(trainLoader_list[0]), client_copy_list, server,
+            trainLoader_list, testLoader, factor, 1e-3, 1e-3, use_64bit=USE_64BIT,
+            device=DEVICE
+        )
+        logging.info(f"After warm start: Test loss: {tloss[-1]:.2f}, Test accuracy: {tacc:.2f}")
+        logging.info("-------------------------------------------------------------------------------------")
+
+        # reload the server model and optimizer
+        server = serv.Server(serv.Server_model_cifar(), s_args, device=DEVICE)
+        server.model.load_state_dict(server_model.state_dict())
+        server.model.to(DEVICE)
 
     set_mark = False
     dbg_saved_aux_params = [[] for _ in range(s_args['activated'])]
     for r in range(s_args["round"]):
         for i in range(s_args["activated"]):
-            for k in range(u_args["batch_round"]):
+            #for k in range(u_args["batch_round"]):
+            for k, (samples, labels) in enumerate(trainLoader_list[i]):
 
                 # check if data iterator has finished iterating current cycle
-                if (r * u_args["batch_round"] + k) == (num_resets[i] + 1) * len(it_list[i]):
-                    num_resets[i] += 1
-                    it_list[i] = iter(trainLoader_list[i])
+                #if (r * u_args["batch_round"] + k) == (num_resets[i] + 1) * len(it_list[i]):
+                #    num_resets[i] += 1
+                #    it_list[i] = iter(trainLoader_list[i])
 
-                # sample dataset
-                #batch_count[i] += 1
-                samples, labels = next(it_list[i])
+                #samples, labels = next(it_list[i])
                 samples = samples.to(DEVICE).double() if USE_64BIT else \
                     samples.to(DEVICE).float()
                 labels = labels.to(DEVICE).long()
@@ -180,12 +186,12 @@ def main(u_args, s_args, c_args):
                 splitting_output = client_copy_list[i].model(samples)
                 local_smashed_data = splitting_output.clone().detach().requires_grad_(True)
 
-                # contact server and perform alignment at every l^th round and first local iteration
-                if r % l == 0 and k == 0:
+                # contact server every p steps
+                if k % u_args['batch_round'] == 0:
 
-                    if DEBUG: logging.debug(f" ------------ ALIGNMENT <R {r:2d}, C {i:2d}, k {k:2d}> -----------------")
+                    #logging.debug(f"R{r:2d} C{i:2d} B{k:2d} Sending smashed data to server")
                     smashed_data = splitting_output.clone().detach().requires_grad_(True)
-                    comm_load += smashed_data.numel() * 4   # float32 = 4 bytes
+                    #comm_load += smashed_data.numel() * 4   # float32 = 4 bytes
 
                     # pass smashed data through server
                     server.optimizer.zero_grad()
@@ -196,9 +202,13 @@ def main(u_args, s_args, c_args):
 
                     # save smashed data to memory
                     client_copy_list[i].auxiliary_model.add_datapoint(
-                        local_smashed_data.clone().detach(), labels
+                        splitting_output.clone().detach(), labels
                     )
 
+                # perform alignment at every l^th round and first local iteration
+                if r % l == 0 and k == 0:
+
+                    if DEBUG: logging.debug(f" ------------ ALIGNMENT <R {r:2d}, C {i:2d}, k {k:2d}> -----------------")
                     # recompute gradients of smashed data
                     client_copy_list[i].auxiliary_model.refresh_data()
 
@@ -231,7 +241,7 @@ def main(u_args, s_args, c_args):
                     if DEBUG:  logging.debug(f" -----------------------------------------------------------------------")
                 
                 # for debugging ********
-                if DEBUG:
+                if False and DEBUG:
                     def assert_server_model_identical():
                         for p1, p2 in zip(dbg_saved_server_params, server.model.parameters()):
                             assert torch.allclose(p1, p2), "Server model unintentionally changed!!"
@@ -268,7 +278,6 @@ def main(u_args, s_args, c_args):
 
                         tr_loss_per_client_iter[i].append(tr_loss)
                         tr_acc_per_client_iter[i].append(tr_acc)
-
 
                 splitting_output.backward(client_grad_approx)
                 client_copy_list[i].optimizer.step()
@@ -362,12 +371,15 @@ def main(u_args, s_args, c_args):
         metrics_file = os.path.join(u_args['save_path'], 'metrics.pt')
         torch.save([acc_list, loss_list, comm_load_list], metrics_file)
 
+        # save trained model
+        utils.save_model(aggregated_client, os.path.join(u_args['save_path'], 'agg_client.pt'))
+        utils.save_model(server.model, os.path.join(u_args['save_path'], 'server.pt'))
+
     # Plot training and test results
     plots.plot_final_metrics(
         tr_loss_per_client_iter, tr_acc_per_client_iter,
         tr_grad_mse_per_client_iter, tr_grad_nmse_per_client_iter, tr_loss_list,
-        tr_acc_list, loss_list, acc_list, u_args['plot_path'],
-        debug=DEBUG, save = u_args['save']
+        tr_acc_list, loss_list, acc_list, u_args['plot_path'], debug=DEBUG
     )
 
     logging.info(f"Testing accuracy: {acc_list}")
@@ -380,12 +392,17 @@ if __name__ == '__main__':
     ## get system configs
     args = options.args_parser('FSL-Approx')    #---------todo
     u_args, s_args, c_args = options.group_args(args) #---------todo
-    u_args['plot_path'] = os.path.join(u_args['save_path'], 'plots')
-    os.makedirs(u_args['plot_path'], exist_ok=True)
+    if u_args['save']:
+        u_args['plot_path'] = os.path.join(u_args['save_path'], 'plots')
+        os.makedirs(u_args['plot_path'], exist_ok=True)
+    else:
+        u_args['plot_path'] = None
     utils.show_utils(u_args) #---------todo
     
-    logs.configure_logging(os.path.join(u_args['save_path'], "output.log"))
-    logs.log_hparams(u_args, c_args, s_args)
+    log_file = os.path.join(u_args['save_path'], "output.log") \
+        if u_args['save'] else None
+    logs.configure_logging(log_file)
+    if u_args['save']: logs.log_hparams(u_args, c_args, s_args)
 
     logging.info(f"Using GPU: {torch.cuda.is_available()}")
  

@@ -24,31 +24,31 @@ def configure_logging(logfile_path):
     """
     dictConfig(DEFAULT_LOGGING)
 
-    file_formatter = logging.Formatter(
-        "[%(asctime)s, %(levelname)s, %(filename)s:%(funcName)s():%(lineno)s] %(message)s",
-        "%d/%m/%y %H:%M:%S")
+    logging.root.setLevel(logging.DEBUG)
+    logging.root.handlers.clear()
+
+    if logfile_path is not None:
+        file_formatter = logging.Formatter(
+            "[%(asctime)s, %(levelname)s, %(filename)s:%(funcName)s():%(lineno)s] %(message)s",
+            "%d/%m/%y %H:%M:%S")
+        file_handler = logging.handlers.RotatingFileHandler(
+            logfile_path, maxBytes=10485760, backupCount=300, encoding='utf-8'
+        )
+        file_handler.setLevel(logging.INFO)
+        file_handler.setFormatter(file_formatter)
+        logging.root.addHandler(file_handler)
 
     console_formatter = logging.Formatter(
         "[%(levelname)s, %(funcName)s():%(lineno)s] %(message)s")
-
-    file_handler = logging.handlers.RotatingFileHandler(
-        logfile_path, maxBytes=10485760, backupCount=300, encoding='utf-8'
-    )
-    file_handler.setLevel(logging.INFO)
-
     console_handler = logging.StreamHandler()
     console_handler.setLevel(logging.DEBUG)
-
-    file_handler.setFormatter(file_formatter)
     console_handler.setFormatter(console_formatter)
-
-    logging.root.setLevel(logging.DEBUG)
-    logging.root.handlers.clear()
-    logging.root.addHandler(file_handler)
     logging.root.addHandler(console_handler)
 
-def log_hparams(u_args, c_args, s_args):
-    with open(os.path.join(u_args['save_path'], 'settings.yml'), 'w') as yml_file:
+
+def log_hparams(u_args, c_args, s_args, settings_dir=None):
+    if settings_dir is None: settings_dir = u_args['save_path']
+    with open(os.path.join(settings_dir, 'settings.yml'), 'w') as yml_file:
         save_dict = {
             'u_args' : u_args,
             'server' : s_args,

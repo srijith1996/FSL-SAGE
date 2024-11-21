@@ -18,10 +18,6 @@ DEVICE = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 if USE_64BIT: torch.set_default_dtype(torch.float64)
 if DEBUG: torch.set_printoptions(sci_mode=True)
 
-alg_name = sys.argv[1]
-SAVE_PATH = f'../saves/baselines/{sys.argv[1]}'
-os.makedirs(SAVE_PATH, exist_ok=True)
-
 # -----------------------------------------------------------------------------
 def init_all(model, init_func, *params, **kwargs):
     for p in model.parameters():
@@ -63,17 +59,18 @@ def get_dataset(u_args, s_args, c_args):
         testSet, batch_size=c_args['batch_size'], shuffle=False,
         pin_memory=False
     )
-    return trainLoader_list, testLoader
+    return trainLoader_list, testLoader, client_train_set
     
 # -----------------------------------------------------------------------------
-def train_alg(alg_name, u_args, s_args, c_args):
+def train_alg(alg_name, save_path, u_args, s_args, c_args):
 
-    trainLoader_list, testLoader = get_dataset(u_args, s_args, c_args)
+    trainLoader_list, testLoader, client_train_set = get_dataset(
+        u_args, s_args, c_args)
     criterion = nn.NLLLoss().to(DEVICE)
 
     # Calculate the weights for dataset size
     dataset_size_list = [
-        client_copy_list[i].dataset_size for i in range(s_args["activated"])
+        int(client_train_set[i]['num']) for i in range(s_args["activated"])
     ]
     total = sum(dataset_size_list)
     factor = [i / total for i in dataset_size_list]
@@ -89,13 +86,14 @@ def train_alg(alg_name, u_args, s_args, c_args):
 
         # train
         aggregated_client, test_loss, acc = algs.fed_avg(
-            s_args['round'], c_args['batch_round'], model, criterion,
-            trainLoader_list, testLoader, factor, use_64bit=False, device=DEVICE
+            s_args['round'], u_args['batch_round'], model, criterion,
+            trainLoader_list, testLoader, factor, 1e-3, use_64bit=False,
+            device=DEVICE
         )
 
         # save model
         utils.save_model(
-            aggregated_client, os.path.join(SAVE_PATH, 'agg_client.pt')
+            aggregated_client, os.path.join(save_path, 'agg_client.pt')
         )
 
     else:
@@ -116,10 +114,6 @@ def train_alg(alg_name, u_args, s_args, c_args):
         init_all(
             client_copy_list[0].model, torch.nn.init.normal_, mean=0., std=0.05
         )
-        init_all(
-            client_copy_list[0].auxiliary_model, torch.nn.init.normal_, mean=0.,
-            std=0.05
-        )
         init_all(server.model, torch.nn.init.normal_, mean=0., std=0.05) 
 
         for i in range(s_args["activated"]):
@@ -132,25 +126,29 @@ def train_alg(alg_name, u_args, s_args, c_args):
         if alg_name == 'sl_single_server':
             client_copy_list, aggregated_client, server, test_loss, acc = \
             algs.sl_single_server(
-                s_args['round'], c_args['batch_round'], client_copy_list,
-                server, trainLoader_list, testLoader, factor, device=DEVICE
+                s_args['round'], u_args['batch_round'], client_copy_list,
+                server, trainLoader_list, testLoader, factor, 1e-3, 1e-3,
+                device=DEVICE
             )
 
         elif alg_name == 'sl_multi_server':
             client_copy_list, aggregated_client, server, test_loss, acc = \
             algs.sl_multi_server(
-                s_args['round'], c_args['batch_round'], client_copy_list,
-                server, trainLoader_list, testLoader, factor, device=DEVICE
+                s_args['round'], u_args['batch_round'], client_copy_list,
+                server, trainLoader_list, testLoader, factor, 1e-3, 1e-3,
+                device=DEVICE
             )
+        else:
+            raise Exception(f"Unknown algorithm name: {alg_name}")
 
         utils.save_model(
-            aggregated_client, os.path.join(SAVE_PATH, 'agg_client.pt')
+            aggregated_client, os.path.join(save_path, 'agg_client.pt')
         )
-        utils.save_model(server, os.path.join(SAVE_PATH, 'server.pt'))
+        utils.save_model(server, os.path.join(save_path, 'server.pt'))
 
     save_dict = {'test_loss': test_loss,
                  'test_acc' : acc}
-    filename = os.path.join(SAVE_PATH, 'test_metrics.json')
+    filename = os.path.join(save_path, 'test_metrics.json')
     with open(filename, 'w') as outf:
             json.dump(save_dict, outf)
             logging.info(f"[NOTICE] Saved results to '{filename}'.")
@@ -158,12 +156,15 @@ def train_alg(alg_name, u_args, s_args, c_args):
 # -----------------------------------------------------------------------------
 if __name__ == "__main__":
 
-    args = options.args_parser('fed_avg')    #---------todo
-    u_args, s_args, c_args = options.group_args(args) #---------todo
+    args = options.args_parser('sl_single_server')    #---------todo
+    u_args, s_args, c_args = options.group_args(args, create_dir=False) #---------todo
 
-    logs.configure_logging(os.path.join(SAVE_PATH, "output.log"))
-    logs.log_hparams(u_args, c_args, s_args)
+    save_path = f'../saves/baselines/{args.method}'
+    os.makedirs(save_path, exist_ok=True)
 
-    train_alg(args.method, u_args, s_args, c_args)
+    logs.configure_logging(os.path.join(save_path, "output.log"))
+    logs.log_hparams(u_args, c_args, s_args, settings_dir=save_path)
+
+    train_alg(args.method, save_path, u_args, s_args, c_args)
 
 # -----------------------------------------------------------------------------
