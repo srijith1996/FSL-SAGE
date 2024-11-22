@@ -43,18 +43,17 @@ def aggregate_models(model_list, weights, device='cpu'):
 
 # ------------------------------------------------------------------------------
 def fed_avg(
-    rounds, iters, model, criterion, train_loader_list, test_loader, factor,
+    rounds, model, criterion, train_loader_list, test_loader, factor,
     lr, use_64bit=False, device='cpu'
 ):
     '''Federated Averaging
 
     Implements the FedAvg algorithm given a model.  Training happens for
-    `rounds` rounds, with `iters` local iterations per client.
+    `rounds` rounds, with one epoch worth of local iterations per client.
 
     Params
     ------
     rounds      - # training rounds
-    iters       - # local iterations on each client, per round
     model       - PyTorch model to train
     train_loader_list - List of DataLoader objects, one for each client's
         training set.
@@ -79,21 +78,14 @@ def fed_avg(
     clients = [copy.deepcopy(model).to(device) for _ in range(num_clients)]
     aggregated_client = copy.deepcopy(model).to(device)
 
-    it_list = [iter(tl) for tl in train_loader_list]
-    num_resets = [0 for _ in range(num_clients)]
-
     model_optim = [optim.Adam(c.parameters(), lr=lr) for c in clients]
 
+    all_loss = []
+    all_acc = []
     for r in range(rounds):
         for i in range(num_clients):
-            for k in range(iters):
+            for samples, labels in train_loader_list[i]:
 
-                # check if data iterator has finished iterating current cycle
-                if (r * iters + k) == (num_resets[i] + 1) * len(it_list[i]):
-                    num_resets[i] += 1
-                    it_list[i] = iter(train_loader_list[i])
-
-                samples, labels = next(it_list[i])
                 samples = samples.to(device).double() if use_64bit \
                     else samples.to(device).float()
                 labels = labels.to(device).long()
@@ -126,26 +118,27 @@ def fed_avg(
                 _, predicted = torch.max(output.data, 1)
                 test_correct += predicted.eq(labels.view_as(predicted)).sum().item()
             loss = sum(test_loss) / len(test_loss)
-            acc =  100. * test_correct / len(test_loader.dataset)
-            logging.info(f' > Round {r}, testing loss: {loss:.2f}, testing acc: {acc:.2f}%')
+            all_loss.append(loss)
+            acc =  test_correct / len(test_loader.dataset)
+            all_acc.append(acc)
+            logging.info(f' > Round {r}, testing loss: {loss:.2f}, testing acc: {100. * acc:.2f}%')
 
-    return aggregated_client, test_loss, acc
+    return aggregated_client, all_loss, all_acc
 
 # ------------------------------------------------------------------------------
 def sl_single_server(
-    rounds, iters, client_copy_list, server, train_loader_list, test_loader,
+    rounds, client_copy_list, server, train_loader_list, test_loader,
     factor, client_lr, server_lr, use_64bit=False, device='cpu'
 ):
     '''Split Learning with single server model
 
     Implements split learning given a list of client models and a server model.
-    Training happens for `rounds` rounds, with `iters` local iterations per
-    client.
+    Training happens for `rounds` rounds, with one epoch worth of local
+    iterations per client.
 
     Params
     ------
     rounds      - # training rounds
-    iters       - # local iterations on each client, per round
     client_copy_list - list of Client() objects representing client model,
         optimizer and other options
     server      - Server() object representing the server model, optimizer and other
@@ -173,20 +166,12 @@ def sl_single_server(
     client_optim_ws = [optim.Adam(c.model.parameters(), lr=client_lr) for c in client_copy_list]
     server_optim_ws = optim.Adam(server.model.parameters(), lr=server_lr)
 
-    it_list = [iter(tl) for tl in train_loader_list]
-    num_resets = [0 for _ in range(num_clients)]
-
+    all_loss = []
+    all_acc = []
     for r in range(rounds):
         for i in range(num_clients):
-            for k in range(iters):
+            for samples, labels in train_loader_list[i]:
 
-                # check if data iterator has finished iterating current cycle
-                if (r * iters + k) == (num_resets[i] + 1) * len(it_list[i]):
-                    num_resets[i] += 1
-                    it_list[i] = iter(train_loader_list[i])
-
-                # client feedforward
-                samples, labels = next(it_list[i])
                 samples = samples.to(device).double() if use_64bit \
                     else samples.to(device).float()
                 labels = labels.to(device).long()
@@ -226,26 +211,27 @@ def sl_single_server(
                     _, predicted = torch.max(output.data, 1)
                     test_correct += predicted.eq(labels.view_as(predicted)).sum().item()
                 loss = sum(test_loss) / len(test_loss)
-                acc =  100. * test_correct / len(test_loader.dataset)
-                logging.info(f' > Round {r}, testing loss: {loss:.2f}, testing acc: {acc:.2f}%')
+                all_loss.append(loss)
+                acc =  test_correct / len(test_loader.dataset)
+                all_acc.append(acc)
+                logging.info(f' > Round {r}, testing loss: {loss:.2f}, testing acc: {100. * acc:.2f}%')
 
-    return client_copy_list, aggregated_client, server.model, test_loss, acc
+    return client_copy_list, aggregated_client, server.model, all_loss, all_acc
 
 # ------------------------------------------------------------------------------
 def sl_multi_server(
-    rounds, iters, client_copy_list, server, train_loader_list, test_loader,
+    rounds, client_copy_list, server, train_loader_list, test_loader,
     factor, client_lr, server_lr, use_64bit=False, device='cpu'
 ):
     '''Split Learning with one server model per client
 
     Implements split learning with a dedicated server model per client which is
-    averaged once per round.  Training happens for `rounds` rounds, with `iters`
-    local iterations per client.
+    averaged once per round.  Training happens for `rounds` rounds, with one
+    epoch worth of local iterations per client.
 
     Params
     ------
     rounds      - # training rounds
-    iters       - # local iterations on each client, per round
     client_copy_list - list of Client() objects representing client model,
         optimizer and other options
     server      - Server() object representing the server model, optimizer and other
@@ -274,20 +260,12 @@ def sl_multi_server(
     client_optim_ws = [optim.Adam(c.model.parameters(), lr=client_lr) for c in client_copy_list]
     server_optim_ws = [optim.Adam(s.model.parameters(), lr=server_lr) for s in server_copy_list]
 
-    it_list = [iter(tl) for tl in train_loader_list]
-    num_resets = [0 for _ in range(num_clients)]
-
+    all_loss = []
+    all_acc = []
     for r in range(rounds):
         for i in range(num_clients):
-            for k in range(iters):
+            for samples, labels in train_loader_list[i]:
 
-                # check if data iterator has finished iterating current cycle
-                if (r * iters + k) == (num_resets[i] + 1) * len(it_list[i]):
-                    num_resets[i] += 1
-                    it_list[i] = iter(train_loader_list[i])
-
-                # client feedforward
-                samples, labels = next(it_list[i])
                 samples = samples.to(device).double() if use_64bit \
                     else samples.to(device).float()
                 labels = labels.to(device).long()
@@ -333,9 +311,12 @@ def sl_multi_server(
                     _, predicted = torch.max(output.data, 1)
                     test_correct += predicted.eq(labels.view_as(predicted)).sum().item()
                 loss = sum(test_loss) / len(test_loss)
-                acc =  100. * test_correct / len(test_loader.dataset)
-                logging.info(f' > Round {r}, testing loss: {loss:.2f}, testing acc: {acc:.2f}%')
+                all_loss.append(loss)
+                acc =  test_correct / len(test_loader.dataset)
+                all_acc.append(acc)
+                logging.info(f' > Round {r}, testing loss: {loss:.2f}, testing acc: {100. * acc:.2f}%')
 
-    return client_copy_list, aggregated_client, aggregated_server, test_loss, acc
+    return client_copy_list, aggregated_client, aggregated_server,\
+        all_loss, all_acc 
 
 # ------------------------------------------------------------------------------

@@ -86,9 +86,8 @@ def train_alg(alg_name, save_path, u_args, s_args, c_args):
 
         # train
         aggregated_client, test_loss, acc = algs.fed_avg(
-            s_args['round'], u_args['batch_round'], model, criterion,
-            trainLoader_list, testLoader, factor, 1e-3, use_64bit=False,
-            device=DEVICE
+            s_args['round'], model, criterion, trainLoader_list, testLoader,
+            factor, 1e-3, use_64bit=False, device=DEVICE
         )
 
         # save model
@@ -126,17 +125,15 @@ def train_alg(alg_name, save_path, u_args, s_args, c_args):
         if alg_name == 'sl_single_server':
             client_copy_list, aggregated_client, server, test_loss, acc = \
             algs.sl_single_server(
-                s_args['round'], u_args['batch_round'], client_copy_list,
-                server, trainLoader_list, testLoader, factor, 1e-3, 1e-3,
-                device=DEVICE
+                s_args['round'], client_copy_list, server, trainLoader_list,
+                testLoader, factor, 1e-3, 1e-3, device=DEVICE
             )
 
         elif alg_name == 'sl_multi_server':
             client_copy_list, aggregated_client, server, test_loss, acc = \
             algs.sl_multi_server(
-                s_args['round'], u_args['batch_round'], client_copy_list,
-                server, trainLoader_list, testLoader, factor, 1e-3, 1e-3,
-                device=DEVICE
+                s_args['round'], client_copy_list, server, trainLoader_list,
+                testLoader, factor, 1e-3, 1e-3, device=DEVICE
             )
         else:
             raise Exception(f"Unknown algorithm name: {alg_name}")
