@@ -24,19 +24,6 @@ def init_all(model, init_func, *params, **kwargs):
         init_func(p, *params, **kwargs)   
 
 # -----------------------------------------------------------------------------
-def calculate_load(model):        
-    param_size = 0
-    for param in model.parameters():
-        param_size += param.nelement() * param.element_size()
-    buffer_size = 0
-    for buffer in model.buffers():
-        buffer_size += buffer.nelement() * buffer.element_size()
-
-    size_all_mb = (param_size + buffer_size) / 1024**2    # MB
-#     size_all_mb = (param_size + buffer_size)   # B
-    return size_all_mb
-
-# -----------------------------------------------------------------------------
 def get_dataset(u_args, s_args, c_args):
     ## process dataset
     trainSet, testSet = utils.get_dataset(s_args, u_args) 
@@ -85,7 +72,7 @@ def train_alg(alg_name, save_path, u_args, s_args, c_args):
         init_all(model, torch.nn.init.normal_, mean=0., std=0.05)
 
         # train
-        aggregated_client, test_loss, acc = algs.fed_avg(
+        aggregated_client, test_loss, acc, comm_load_list = algs.fed_avg(
             s_args['round'], model, criterion, trainLoader_list, testLoader,
             factor, 1e-3, use_64bit=False, device=DEVICE
         )
@@ -123,14 +110,14 @@ def train_alg(alg_name, save_path, u_args, s_args, c_args):
         server.model.to(DEVICE)    
     
         if alg_name == 'sl_single_server':
-            client_copy_list, aggregated_client, server, test_loss, acc = \
+            client_copy_list, aggregated_client, server, test_loss, acc, comm_load_list = \
             algs.sl_single_server(
                 s_args['round'], client_copy_list, server, trainLoader_list,
                 testLoader, factor, 1e-3, 1e-3, device=DEVICE
             )
 
         elif alg_name == 'sl_multi_server':
-            client_copy_list, aggregated_client, server, test_loss, acc = \
+            client_copy_list, aggregated_client, server, test_loss, acc, comm_load_list = \
             algs.sl_multi_server(
                 s_args['round'], client_copy_list, server, trainLoader_list,
                 testLoader, factor, 1e-3, 1e-3, device=DEVICE
@@ -144,7 +131,9 @@ def train_alg(alg_name, save_path, u_args, s_args, c_args):
         utils.save_model(server, os.path.join(save_path, 'server.pt'))
 
     save_dict = {'test_loss': test_loss,
-                 'test_acc' : acc}
+                 'test_acc' : acc,
+                 'comm_load': comm_load_list
+                }
     filename = os.path.join(save_path, 'test_metrics.json')
     with open(filename, 'w') as outf:
             json.dump(save_dict, outf)
@@ -156,12 +145,16 @@ if __name__ == "__main__":
     args = options.args_parser('sl_single_server')    #---------todo
     u_args, s_args, c_args = options.group_args(args, create_dir=False) #---------todo
 
-    save_path = f'../saves/baselines/{args.method}'
-    os.makedirs(save_path, exist_ok=True)
+    train_elms = ["fed_avg", "sl_single_server", "sl_multi_server"]
 
-    logs.configure_logging(os.path.join(save_path, "output.log"))
-    logs.log_hparams(u_args, c_args, s_args, settings_dir=save_path)
+    for te in train_elms:
+        args.method = te
+        save_path = f'../saves/baselines/{args.method}'
+        os.makedirs(save_path, exist_ok=True)
 
-    train_alg(args.method, save_path, u_args, s_args, c_args)
+        logs.configure_logging(os.path.join(save_path, "output.log"))
+        logs.log_hparams(u_args, c_args, s_args, settings_dir=save_path)
+
+        train_alg(args.method, save_path, u_args, s_args, c_args)
 
 # -----------------------------------------------------------------------------

@@ -9,6 +9,18 @@ import torch
 from torch.utils.data import Dataset
 from torchvision import datasets, transforms
 
+def calculate_load(model):        
+    param_size = 0
+    for param in model.parameters():
+        param_size += param.nelement() * param.element_size()
+    buffer_size = 0
+    for buffer in model.buffers():
+        buffer_size += buffer.nelement() * buffer.element_size()
+
+    # size_all_mb = (param_size + buffer_size)  / 1024**2    # MB
+    size_all_mb = (param_size + buffer_size)   # B
+    return size_all_mb
+
 
 def get_dataset(args, u_args):
     '''

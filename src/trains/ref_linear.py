@@ -6,17 +6,18 @@ import torch
 import torch.nn as nn
 from torch import optim
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, TensorDataset
 from trains.server import Server
-import logging
+
+# ------------------------------------------------------------------------------
+DEBUG = 1
+
+def debug(str):
+    if DEBUG: print(str)
 
 # ------------------------------------------------------------------------------
 class AuxiliaryModel(ABC, nn.Module):
 
-    def __init__(self,
-        server: Server, device='cpu', max_dataset_size=1000,
-        align_batch_size=100
-    ):
+    def __init__(self, server: Server, device='cpu'):
         '''Base class for Auxiliary models.
         
         Params
@@ -24,8 +25,6 @@ class AuxiliaryModel(ABC, nn.Module):
             server - class containing (model, optimizer, etc.) corresponding to
                 the server
             device - torch device to use
-            max_dataset_size - Maximum number of alignment points to store
-            align_batch_size - batch-size for alignment loop
 
         Attributes
         ----------
@@ -34,14 +33,18 @@ class AuxiliaryModel(ABC, nn.Module):
             data_y - Dataset of cut-layer gradients returned by the server
         '''
         super(AuxiliaryModel, self).__init__()
-
-        self.max_data_size = max_dataset_size
         self.data_x = torch.tensor([], device=device)   # dataset cut-layer activations
         self.data_labels = torch.tensor([], device=device) # labels corresponding to the data_x
         self.data_y = torch.tensor([], device=device)   # dataset cut-layer true gradients
-        self.data_loader = None
-        self.align_batch_size = align_batch_size
+        self.dataset_x_diameter = None
         self.server = server
+
+    #def assert_io_shape(self, x, label):
+    #    '''Check if auxiliary model indeed returns gradients of the same
+    #    shape as the input.'''
+    #    out = self.forward(x, label)
+    #    assert out.shape[-1] == (x.shape[-1] + 1),\
+    #        "Auxiliary model should have input and output of same shape"
 
     @abstractmethod
     def align(self):
@@ -64,7 +67,6 @@ class AuxiliaryModel(ABC, nn.Module):
         
         '''
         if all:
-            logging.debug(f"Size of alignment dataset: {self.data_x.shape[0]}")
             self.server.optimizer.zero_grad()
             all_ins = self.data_x.clone().detach().requires_grad_(True)
             all_out = self.server.model(all_ins)
@@ -75,11 +77,6 @@ class AuxiliaryModel(ABC, nn.Module):
         else:
             #TODO: Implement this part if needed
             raise Exception("Only all=True supported currently")
-
-        self.data_loader = DataLoader(
-            TensorDataset(self.data_x, self.data_y, self.data_labels),
-            shuffle=True, batch_size=self.align_batch_size, pin_memory=False
-        )
 
     def get_align_dataset(self):
         '''Get X data concatenated with the labels'''
@@ -98,18 +95,25 @@ class AuxiliaryModel(ABC, nn.Module):
         
         Params
         ------
-            x     - cut-layer activation of shape (N, x_shape),
+            x     - cut-layer activation of shape (H, W, C),
             label - labels corresponding to x.
 
         '''
         self.data_x = torch.cat((self.data_x, x), dim=0)
         self.data_labels = torch.cat((self.data_labels, label), dim=0).long()
-        if self.data_x.shape[0] > self.max_data_size:
-            self.data_x = self.data_x[-self.max_data_size:]
-            self.data_labels = self.data_labels[-self.max_data_size:]
 
-        assert self.data_x.shape[0] <= self.max_data_size,\
-            "Error in <add_datapoint>: Dataset size has exceeded limit"
+        #if self.data_x is None:
+        #    n = x.shape[1]
+        #    self.d1 = torch.randn((n,1)).to(x.device)
+        #    self.d2 = torch.randn((n,1)).to(x.device)
+        #    self.fig, self.ax = plt.subplots(1, 1, figsize=[8, 6], dpi=120)
+        #    self.legends = []
+
+        #d1_dot = (x @ self.d1).detach().cpu().numpy()
+        #d2_dot = (x @ self.d2).detach().cpu().numpy()
+
+        #self.ax.scatter(d1_dot, d2_dot, 'o')
+        #self.legends.append('iter'
 
     def debug_grad_nmse(self, x, labels, pre=''):
         x = x.requires_grad_(True)
@@ -121,15 +125,14 @@ class AuxiliaryModel(ABC, nn.Module):
         approx_grad = self.forward(x, labels).clone().detach()
         #debug(f"[DEBUG] Approx grad: \n{approx_grad}")
         assert approx_grad.shape == true_grad.shape,\
-                "Shape of True and predicted gradients don't match"
-        #logger.debug("True grad: ", true_grad)
-        #logger.debug("Approx grad: ", approx_grad)
+                "True and predicted gradients don't match"
+        #print("True grad: ", true_grad)
+        #print("Approx grad: ", approx_grad)
         nmse_grad = F.mse_loss(true_grad, approx_grad, reduction='sum') / torch.sum(true_grad**2)
         mse_grad = F.mse_loss(true_grad, approx_grad)
-        logging.debug(f"{pre} MSE: {mse_grad:0.3e}, NMSE: {nmse_grad:0.3e}")
+        print(f"{pre} MSE: {mse_grad:0.3e}, NMSE: {nmse_grad:0.3e}")
 
         self.server.optimizer.zero_grad()
-        return mse_grad, nmse_grad
         
 # ------------------------------------------------------------------------------
 class LinearAuxiliaryModel(AuxiliaryModel):
@@ -164,8 +167,8 @@ class LinearAuxiliaryModel(AuxiliaryModel):
     def align(self, lambda_reg=1e-3):
 
         X, Y = self.get_align_dataset()
-        logging.debug(f"Size of alignment dataset: {X.shape[0]}")
-        logging.debug(f"Loss Before aux update: {self.unc_loss()}")
+        debug(f"Size of alignment dataset: {X.shape[0]}")
+        debug(f"Loss Before aux update: {self.unc_loss()}")
         XtX = X.T @ X + X.shape[0] * lambda_reg * torch.eye(X.shape[1]).to(X.device)
         P = torch.linalg.solve(XtX, X, left=False)
         if self.bias:
@@ -179,7 +182,7 @@ class LinearAuxiliaryModel(AuxiliaryModel):
             W = Y.T @ P
             c = None
         self.fc.weight.data = W
-        logging.debug(f"Loss After aux update: {self.unc_loss()}")
+        debug(f"Loss After aux update: {self.unc_loss()}")
 
     def forward(self, x, label):
         x = self.get_cat_data(x, label)
@@ -189,7 +192,7 @@ class LinearAuxiliaryModel(AuxiliaryModel):
 class NNAuxiliaryModel(AuxiliaryModel):
     def __init__(self,
         n_input, server, device='cpu', n_hidden=None,
-        align_epochs=5, align_step=1e-3, 
+        align_iters=5, align_step=1e-3, 
     ):
         super(NNAuxiliaryModel, self).__init__(server, device)
         if n_hidden is None:
@@ -200,25 +203,30 @@ class NNAuxiliaryModel(AuxiliaryModel):
         self.fc2 = nn.Linear(
             in_features=n_hidden, out_features=(n_input-1), bias=True
         )
-        self.align_epochs = align_epochs
-        self.optimizer = optim.Adam(self.parameters(), lr=align_step)
+        self.align_iters = align_iters
+        self.align_step = align_step
 
-    def align_loss(self, x, y):
+    def unc_loss(self):
+        X, Y = self.data_x, self.data_y
+        loss = F.mse_loss(self.forward(X), Y)
+        return loss
+            
+    def align_loss(self, lambda_reg=1e-3):
         # TODO: Implement regularization if needed
-        loss = F.mse_loss(self.forward(x), y)
+        loss = self.unc_loss()
         return loss
 
-    def align(self):
-        logging.debug(f"Loss Before aux update: {self.unc_loss()}")
+    def align(self, lambda_reg=1e-1):
+        debug(f"Loss Before aux update: {self.unc_loss()}")
+        optimizer = optim.Adam(self.parameters(), lr=self.align_step)
 
-        for i in range(self.align_epochs):
-            for x, y in self.data_loader: 
-                self.optimizer.zero_grad()
-                loss = self.align_loss(x, y)
-                logging.debug(f" --- Iter {i}, Loss {loss}")
-                loss.backward()
-                self.optimizer.step()
-        logging.debug(f"Loss After aux update: {self.unc_loss()}")
+        for i in range(self.align_iters):
+            optimizer.zero_grad()
+            loss = self.align_loss(lambda_reg)
+            debug(f" --- Iter {i}, Loss {loss}")
+            loss.backward()
+            optimizer.step()
+        debug(f"Loss After aux update: {self.unc_loss()}")
 
     def forward(self, x, label):
         x = self.get_cat_data(x, label)
@@ -227,59 +235,12 @@ class NNAuxiliaryModel(AuxiliaryModel):
         return x
  
 # ------------------------------------------------------------------------------
-class GradScalarAuxiliaryModel(AuxiliaryModel):
-
-    def __init__(self,
-        server, device='cpu', align_epochs=5, align_batch_size=100,
-        max_dataset_size=1000
-    ):
-        super(GradScalarAuxiliaryModel, self).__init__(
-            server, device, max_dataset_size, align_batch_size
-        )
-        self.align_epochs = align_epochs
-
-    @abstractmethod
-    def forward_inner(self, x):
-        pass
-
-    def set_optimizer(self, align_step):
-        self.optimizer = optim.Adam(self.parameters(), lr=align_step)
-
-    def align_loss(self, x, y, labels):
-        aux_out = self.forward(x, labels)
-        loss = F.mse_loss(aux_out, y, reduction='sum')
-        return loss
-
-    def align(self):
-        bar = trange(self.align_epochs, desc="Alignment", disable=True)
-        logging.debug(f"# batches for alignment: {len(self.data_loader)}")
-        for i in bar:
-            for x, y, labels in self.data_loader:
-                self.optimizer.zero_grad()
-                loss = self.align_loss(x, y, labels)
-                loss.backward()
-                self.optimizer.step()
-            if i % 10 == 0:
-                logging.debug(f" --- Epoch {i:4d}/{self.align_epochs}, Loss {loss:.4e}")
-            bar.set_postfix(loss=loss.item())
-
-    def forward(self, x, label):
-        x.requires_grad_(True)
-        out = self.server.criterion(self.forward_inner(x), label)
-        aux_out = torch.autograd.grad(out, x, create_graph=True)[0]
-        return aux_out
-
-# ------------------------------------------------------------------------------
-class NNGradScalarAuxiliaryModel(GradScalarAuxiliaryModel):
+class NNGradScalarAuxiliaryModel(AuxiliaryModel):
     def __init__(self,
         n_input, n_output, server, device='cpu', n_hidden=None,
-        align_epochs=5, align_step=1e-3, align_batch_size=100,
-        max_dataset_size=1000
+        align_iters=5, align_step=1e-3, 
     ):
-        super(NNGradScalarAuxiliaryModel, self).__init__(
-            server, device, align_epochs, align_batch_size, max_dataset_size
-        )
-
+        super(NNGradScalarAuxiliaryModel, self).__init__(server, device)
         if n_hidden is None:
             n_hidden = 2 * n_input
         self.fc1 = nn.Linear(
@@ -288,40 +249,100 @@ class NNGradScalarAuxiliaryModel(GradScalarAuxiliaryModel):
         self.olayer = nn.Linear(
             in_features=n_hidden, out_features=n_output, bias=True
         )
-        self.align_epochs = align_epochs
+        self.align_iters = align_iters
+        self.align_step = align_step
 
-        self.set_optimizer(align_step)
+    def unc_loss(self):
+        X, Y = self.data_x, self.data_y
+        aux_out = self.forward(X, self.data_labels)
+        #print(Y[:5, :5])
+        #print(aux_out[:5, :5])
+        loss = F.mse_loss(aux_out, Y, reduction='sum')
+        return loss
+            
+    def align_loss(self, lambda_reg=1e-3):
+        # TODO: Implement regularization if needed
+        loss = self.unc_loss()
+        return loss
+
+    def align(self, lambda_reg=1e-1):
+        debug(f"Loss Before aux update: {self.unc_loss()}")
+        optimizer = optim.Adam(self.parameters(), lr=self.align_step)
+
+        bar = trange(self.align_iters, desc="Alignment", disable=True)
+        for i in bar:
+            optimizer.zero_grad()
+            loss = self.align_loss(lambda_reg)
+            #if i % 500 == 0: debug(f" --- Iter {i:4d}/{self.align_iters}, Loss {loss:.4e}")
+            loss.backward()
+            optimizer.step()
+            bar.set_postfix(loss=loss.item())
+
+        debug(f"Loss After aux update: {self.unc_loss()}")
 
     def forward_inner(self, x):
         x = F.relu(self.fc1(x))
         x = F.log_softmax(self.olayer(x), dim=1)
         return x
-
+    
+    def forward(self, x, label):
+        x.requires_grad_(True)
+        out = self.server.criterion(self.forward_inner(x), label)
+        aux_out = torch.autograd.grad(out, x, create_graph=True)[0]
+        return aux_out
+ 
 # ------------------------------------------------------------------------------
-class LinearGradScalarAuxiliaryModel(GradScalarAuxiliaryModel):
+class VanillaFSL(AuxiliaryModel):
     def __init__(self,
-        n_input, n_output, server, n_hidden = None, device='cpu',
-        align_epochs=5, align_step=1e-3, 
+        n_input, n_output, server, device='cpu', n_hidden=None,
+        align_iters=5, align_step=1e-3, 
     ):
-        super(LinearGradScalarAuxiliaryModel, self).__init__(
-            server, device, align_epochs
-        )
+        super(VanillaFSL, self).__init__(server, device)
+        if n_hidden is None:
+            n_hidden = 2 * n_input
+        self.fc = nn.Linear(in_features=n_input, out_features=n_output)        
+        self.align_iters = align_iters
+        self.align_step = align_step
+        self.optimizer = optim.Adam(self.parameters(), lr=self.align_step)
 
-        self.fc = nn.Linear(
-            in_features=n_input, out_features=n_output, bias=True
-        )
-        self.align_epochs = align_epochs
+    def unc_loss(self):
+        X, Y = self.data_x, self.data_y
+        aux_out = self.forward(X, self.data_labels)
+        #print(Y[:5, :5])
+        #print(aux_out[:5, :5])
+        loss = F.mse_loss(aux_out, Y, reduction='sum')
+        return loss
+            
+    def align_loss(self, lambda_reg=1e-3):
+        # TODO: Implement regularization if needed
+        loss = self.unc_loss()
+        return loss
 
-        self.set_optimizer(align_step)
+    def align(self, lambda_reg=1e-1):
+        debug(f"Loss Before aux update: {self.unc_loss()}")
+        optimizer = optim.Adam(self.parameters(), lr=self.align_step)
+
+        bar = trange(self.align_iters, desc="Alignment", disable=True)
+        for i in bar:
+            optimizer.zero_grad()
+            loss = self.align_loss(lambda_reg)
+            #if i % 500 == 0: debug(f" --- Iter {i:4d}/{self.align_iters}, Loss {loss:.4e}")
+            loss.backward()
+            optimizer.step()
+            bar.set_postfix(loss=loss.item())
+
+        debug(f"Loss After aux update: {self.unc_loss()}")
 
     def forward_inner(self, x):
+        # x = F.relu(self.fc1(x))
         x = F.log_softmax(self.fc(x), dim=1)
+
         return x
     
     def forward(self, x, label):
         x.requires_grad_(True)
-        x = self.server.criterion(self.forward_inner(x), label)
-        
-        return x
+        out = self.server.criterion(self.forward_inner(x), label)
+
+        return out
  
 # ------------------------------------------------------------------------------

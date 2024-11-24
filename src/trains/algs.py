@@ -3,6 +3,7 @@ import logging
 import copy
 import torch
 from torch import optim
+from utils.utils import calculate_load
 
 # ------------------------------------------------------------------------------
 def aggregate_models(model_list, weights, device='cpu'):
@@ -39,6 +40,8 @@ def aggregate_models(model_list, weights, device='cpu'):
     aggregated.to(device)
     aggregated.load_state_dict(aggregated_weights)
 
+    # Won't add to the comm load here because I'll add it for when algs load
+    # in the agg model
     return aggregated
 
 # ------------------------------------------------------------------------------
@@ -82,6 +85,9 @@ def fed_avg(
 
     all_loss = []
     all_acc = []
+    # Store comm_load
+    comm_load_list = []
+    comm_load = 0
     for r in range(rounds):
         for i in range(num_clients):
             for samples, labels in train_loader_list[i]:
@@ -103,7 +109,12 @@ def fed_avg(
         # Update client model weights
         for i in range(num_clients):
             clients[i].load_state_dict(aggregated_client_weights)
+
+            # 2x because upload and download copies to server
+            comm_load += 2 * calculate_load(clients[i])
             
+        comm_load_list.append(comm_load)
+
         # inference
         test_correct = 0
         test_loss = []
@@ -123,7 +134,7 @@ def fed_avg(
             all_acc.append(acc)
             logging.info(f' > Round {r}, testing loss: {loss:.2f}, testing acc: {100. * acc:.2f}%')
 
-    return aggregated_client, all_loss, all_acc
+    return aggregated_client, all_loss, all_acc, comm_load_list
 
 # ------------------------------------------------------------------------------
 def sl_single_server(
@@ -168,6 +179,8 @@ def sl_single_server(
 
     all_loss = []
     all_acc = []
+    comm_load_list = []
+    comm_load = 0
     for r in range(rounds):
         for i in range(num_clients):
             for samples, labels in train_loader_list[i]:
@@ -180,9 +193,23 @@ def sl_single_server(
 
                 # pass smashed data through full model 
                 splitting_output = client_copy_list[i].model(samples)
-                output = server.model(splitting_output) 
+
+                # Represents the uploaded data
+                smashed_data = splitting_output.clone().detach().requires_grad_(True)
+
+                # Comm cost for upload splitting output to server
+                comm_load += smashed_data.numel() * smashed_data.element_size() 
+
+                output = server.model(smashed_data) 
                 loss = server.criterion(output, labels)
                 loss.backward()
+
+                # Comm cost for downloading grads of smashed data
+                comm_load += smashed_data.grad.numel() * smashed_data.grad.element_size()
+
+                # Backprop split output with smashed data grad
+                splitting_output.backward(smashed_data.grad)
+
                 server_optim_ws.step()
                 client_optim_ws[i].step()
 
@@ -194,7 +221,12 @@ def sl_single_server(
         # Update client model weights
         for i in range(num_clients):
             client_copy_list[i].model.load_state_dict(aggregated_client.state_dict())
-        
+            
+            # 2x because upload and download copies to server
+            comm_load += 2 * calculate_load(client_copy_list[i].model)
+
+        comm_load_list.append(comm_load)
+
         # Inference
         if test_loader is not None:
             test_correct = 0
@@ -216,7 +248,7 @@ def sl_single_server(
                 all_acc.append(acc)
                 logging.info(f' > Round {r}, testing loss: {loss:.2f}, testing acc: {100. * acc:.2f}%')
 
-    return client_copy_list, aggregated_client, server.model, all_loss, all_acc
+    return client_copy_list, aggregated_client, server.model, all_loss, all_acc, comm_load_list
 
 # ------------------------------------------------------------------------------
 def sl_multi_server(
@@ -262,6 +294,8 @@ def sl_multi_server(
 
     all_loss = []
     all_acc = []
+    comm_load_list = []
+    comm_load = 0
     for r in range(rounds):
         for i in range(num_clients):
             for samples, labels in train_loader_list[i]:
@@ -274,9 +308,23 @@ def sl_multi_server(
 
                 # pass smashed data through full model 
                 splitting_output = client_copy_list[i].model(samples)
-                output = server_copy_list[i].model(splitting_output) 
+
+                # Represents the uploaded data
+                smashed_data = splitting_output.clone().detach().requires_grad_(True)
+
+                # Upload the smashed data to the server
+                comm_load += smashed_data.numel() * smashed_data.element_size() 
+
+                output = server_copy_list[i].model(smashed_data) 
                 loss = server.criterion(output, labels)
                 loss.backward()
+
+                # Download gradients of the smashed data
+                comm_load += smashed_data.grad.numel() * smashed_data.grad.element_size() 
+
+                # Backprop grads back to splitting_output
+                splitting_output.backward(smashed_data.grad)
+
                 server_optim_ws[i].step()
                 client_optim_ws[i].step()
 
@@ -291,9 +339,13 @@ def sl_multi_server(
         # Update client and server weights
         for i in range(num_clients):
             client_copy_list[i].model.load_state_dict(aggregated_client.state_dict())
+            comm_load += 2 * calculate_load(client_copy_list[i].model)
         
         for i in range(num_clients):
             server_copy_list[i].model.load_state_dict(aggregated_server.state_dict())
+            comm_load += 2 * calculate_load(server_copy_list[i].model)
+
+        comm_load_list.append(comm_load)
 
         # Inference
         if test_loader is not None:
@@ -317,6 +369,6 @@ def sl_multi_server(
                 logging.info(f' > Round {r}, testing loss: {loss:.2f}, testing acc: {100. * acc:.2f}%')
 
     return client_copy_list, aggregated_client, aggregated_server,\
-        all_loss, all_acc 
+        all_loss, all_acc, comm_load_list
 
 # ------------------------------------------------------------------------------

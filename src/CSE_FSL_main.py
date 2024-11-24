@@ -40,19 +40,6 @@ def init_all(model, init_func, *params, **kwargs):
         init_func(p, *params, **kwargs)   
 
 # -----------------------------------------------------------------------------
-def calculate_load(model):        
-    param_size = 0
-    for param in model.parameters():
-        param_size += param.nelement() * param.element_size()
-    buffer_size = 0
-    for buffer in model.buffers():
-        buffer_size += buffer.nelement() * buffer.element_size()
-
-    size_all_mb = (param_size + buffer_size) / 1024**2    # MB
-#     size_all_mb = (param_size + buffer_size)   # B
-    return size_all_mb
-
-# -----------------------------------------------------------------------------
 def main(u_args, s_args, c_args):
     assert s_args["activated"] <= s_args["client"], \
         f"# activated clients {s_args['activated']} is greater than # clients {s_args['client']}"
@@ -124,6 +111,7 @@ def main(u_args, s_args, c_args):
     l = c_args['align'] # the number of training steps to take before the alignment step 
     logging.info(f"Random seed: {str(seed)}")
     logging.info(f"Alignment interval (l): {str(l)}")
+    logging.info(f"Batch Round (h): {str(u_args['batch_round'])}")
 
     # metrics to save
     acc_list = []
@@ -152,12 +140,14 @@ def main(u_args, s_args, c_args):
     # WARM START
     if WARM_START:
         logging.info("----------------------------- WARM START USING SL -----------------------------------")
-        client_copy_list, aggregated_client, server_model, tloss, tacc = algs.sl_single_server(
-            WARM_START_EPOCHS, len(trainLoader_list[0]), client_copy_list, server,
+        client_copy_list, aggregated_client, server_model, tloss, tacc, comm_load_list = algs.sl_single_server(
+            WARM_START_EPOCHS, client_copy_list, server,
             trainLoader_list, testLoader, factor, 1e-3, 1e-3, use_64bit=USE_64BIT,
             device=DEVICE
         )
-        logging.info(f"After warm start: Test loss: {tloss[-1]:.2f}, Test accuracy: {tacc:.2f}")
+        comm_load = comm_load_list[-1]
+
+        logging.info(f"After warm start: Test loss: {tloss[-1]:.2f}, Test accuracy: {tacc[-1]:.2f}")
         logging.info("-------------------------------------------------------------------------------------")
 
         # reload the server model and optimizer
@@ -180,15 +170,16 @@ def main(u_args, s_args, c_args):
                     samples.to(DEVICE).float()
                 labels = labels.to(DEVICE).long()
                 
+                client_copy_list[i].optimizer.zero_grad()
+                client_copy_list[i].auxiliary_model.optimizer.zero_grad()
+
                 # client feedforward
                 splitting_output = client_copy_list[i].model(samples)
                 local_smashed_data = splitting_output.clone().detach().requires_grad_(True)
                 smashed_data = splitting_output.clone().detach().requires_grad_(True)
 
                 # client backpropagation and update client-side model weights
-                client_copy_list[i].optimizer.zero_grad()
-                client_copy_list[i].auxiliary_model.optimizer.zero_grad()
-                output = client_copy_list[i].auxiliary_model.forward_inner(local_smashed_data) # TODO CHECK
+                output = client_copy_list[i].auxiliary_model.forward_inner(local_smashed_data) 
                 server.criterion(output, labels).backward()
                 client_copy_list[i].auxiliary_model.optimizer.step()
 
@@ -197,6 +188,7 @@ def main(u_args, s_args, c_args):
 
                 if k % u_args['batch_round'] == 0:
                     server.optimizer.zero_grad()
+                    comm_load += smashed_data.numel() * smashed_data.element_size()
                     output = server.model(smashed_data)
                     s_loss = server.criterion(output, labels)
                     s_loss.backward()
@@ -224,12 +216,13 @@ def main(u_args, s_args, c_args):
                     aggregated_client_weights_auxiliary[key] += client_copy_list[i].auxiliary_model.state_dict()[key] * factor[i]
 
         # Update client model weights and auxiliary weights
+        # 2x because upload and download to server
         for i in range(s_args["activated"]):
             client_copy_list[i].model.load_state_dict(aggregated_client_weights)
-            comm_load += 2 * calculate_load(client_copy_list[i].model)
+            comm_load += 2 * utils.calculate_load(client_copy_list[i].model)
             if AGGREGATE_AUXILIARY_MODELS:
                 client_copy_list[i].auxiliary_model.load_state_dict(aggregated_client_weights_auxiliary)
-                comm_load += 2 * calculate_load(client_copy_list[i].auxiliary_model)
+                comm_load += 2 * utils.calculate_load(client_copy_list[i].auxiliary_model)
 
         # Inference
         aggregated_client.to(DEVICE)

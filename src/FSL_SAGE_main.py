@@ -24,12 +24,12 @@ import logging
 
 # -----------------------------------------------------------------------------
 # TODO: Move these to command line args
-DEBUG = True
+DEBUG = False
 USE_64BIT = False
 WARM_START = False
-WARM_START_EPOCHS = 1
+WARM_START_EPOCHS = 5
 AGGREGATE_AUXILIARY_MODELS = False
-DEVICE = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+DEVICE = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu')
 
 if USE_64BIT: torch.set_default_dtype(torch.float64)
 if DEBUG: torch.set_printoptions(sci_mode=True)
@@ -38,19 +38,6 @@ if DEBUG: torch.set_printoptions(sci_mode=True)
 def init_all(model, init_func, *params, **kwargs):
     for p in model.parameters():
         init_func(p, *params, **kwargs)   
-
-# -----------------------------------------------------------------------------
-def calculate_load(model):        
-    param_size = 0
-    for param in model.parameters():
-        param_size += param.nelement() * param.element_size()
-    buffer_size = 0
-    for buffer in model.buffers():
-        buffer_size += buffer.nelement() * buffer.element_size()
-
-    size_all_mb = (param_size + buffer_size) / 1024**2    # MB
-#     size_all_mb = (param_size + buffer_size)   # B
-    return size_all_mb
 
 # -----------------------------------------------------------------------------
 def main(u_args, s_args, c_args):
@@ -124,6 +111,7 @@ def main(u_args, s_args, c_args):
     l = c_args['align'] # the number of training steps to take before the alignment step 
     logging.info(f"Random seed: {str(seed)}")
     logging.info(f"Alignment interval (l): {str(l)}")
+    logging.info(f"Batch Round (h): {str(u_args['batch_round'])}")
 
     # metrics to save
     acc_list = []
@@ -152,12 +140,13 @@ def main(u_args, s_args, c_args):
     # WARM START
     if WARM_START:
         logging.info("----------------------------- WARM START USING SL -----------------------------------")
-        client_copy_list, aggregated_client, server_model, tloss, tacc = algs.sl_single_server(
-            WARM_START_EPOCHS, len(trainLoader_list[0]), client_copy_list, server,
+        client_copy_list, aggregated_client, server_model, tloss, tacc, comm_load_list = algs.sl_single_server(
+            WARM_START_EPOCHS, client_copy_list, server,
             trainLoader_list, testLoader, factor, 1e-3, 1e-3, use_64bit=USE_64BIT,
             device=DEVICE
         )
-        logging.info(f"After warm start: Test loss: {tloss[-1]:.2f}, Test accuracy: {tacc:.2f}")
+        comm_load = comm_load_list[-1]
+        logging.info(f"After warm start: Test loss: {tloss[-1]:.2f}, Test accuracy: {tacc[-1]:.2f}")
         logging.info("-------------------------------------------------------------------------------------")
 
         # reload the server model and optimizer
@@ -192,7 +181,7 @@ def main(u_args, s_args, c_args):
 
                     #logging.debug(f"R{r:2d} C{i:2d} B{k:2d} Sending smashed data to server")
                     smashed_data = splitting_output.clone().detach().requires_grad_(True)
-                    #comm_load += smashed_data.numel() * 4   # float32 = 4 bytes
+                    comm_load += smashed_data.numel() * smashed_data.element_size()
 
                     # pass smashed data through server
                     server.optimizer.zero_grad()
@@ -211,6 +200,7 @@ def main(u_args, s_args, c_args):
 
                     if DEBUG: logging.debug(f" ------------ ALIGNMENT <R {r:2d}, C {i:2d}, k {k:2d}> -----------------")
                     # recompute gradients of smashed data
+                    # Comm calc will depend on whether data is stored on the server or aux. Assuming for now it's stored on server.
                     client_copy_list[i].auxiliary_model.refresh_data()
 
                     # Debug the newly computed grad approximation
@@ -222,6 +212,11 @@ def main(u_args, s_args, c_args):
                         )
                
                     # perform alignment for current client
+                    # Note that comm_load needs to be caclulated for the fresh server grads;
+                    # Server needs to send recomputed gradients back to client when
+                    # refresh_data is done
+                    server_grads = client_copy_list[i].auxiliary_model.data_y.clone().detach()
+                    comm_load += server_grads.numel() * server_grads.element_size()
                     client_copy_list[i].auxiliary_model.align()
 
                     # debugging if server remains fixed until next update
@@ -308,10 +303,10 @@ def main(u_args, s_args, c_args):
         # Update client model weights and auxiliary weights
         for i in range(s_args["activated"]):
             client_copy_list[i].model.load_state_dict(aggregated_client_weights)
-            comm_load += 2 * calculate_load(client_copy_list[i].model)
+            comm_load += 2 * utils.calculate_load(client_copy_list[i].model)
             if AGGREGATE_AUXILIARY_MODELS:
                 client_copy_list[i].auxiliary_model.load_state_dict(aggregated_client_weights_auxiliary)
-                comm_load += 2 * calculate_load(client_copy_list[i].auxiliary_model)
+                comm_load += 2 * utils.calculate_load(client_copy_list[i].auxiliary_model)
 
         # Inference
         aggregated_client.to(DEVICE)
@@ -377,11 +372,12 @@ def main(u_args, s_args, c_args):
         utils.save_model(server.model, os.path.join(u_args['save_path'], 'server.pt'))
 
     # Plot training and test results
-    plots.plot_final_metrics(
-        tr_loss_per_client_iter, tr_acc_per_client_iter,
-        tr_grad_mse_per_client_iter, tr_grad_nmse_per_client_iter, tr_loss_list,
-        tr_acc_list, loss_list, acc_list, u_args['plot_path'], debug=DEBUG
-    )
+    if DEBUG:
+        plots.plot_final_metrics(
+            tr_loss_per_client_iter, tr_acc_per_client_iter,
+            tr_grad_mse_per_client_iter, tr_grad_nmse_per_client_iter, tr_loss_list,
+            tr_acc_list, loss_list, acc_list, u_args['plot_path'], debug=DEBUG
+        )
 
     logging.info(f"Testing accuracy: {acc_list}")
     logging.info(f"Testing loss: {loss_list}")
