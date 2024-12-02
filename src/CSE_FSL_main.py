@@ -91,6 +91,12 @@ def main(u_args, s_args, c_args):
     #init_all(client_copy_list[0].auxiliary_model, torch.nn.init.normal_, mean=0., std=1.0) 
     #init_all(server.model, torch.nn.init.kaiming_normal_) 
     
+    # compute sizes of different models
+    mod_sizes = utils.compute_model_size(
+        client_copy_list[0].model, server.model, client_copy_list[0].auxiliary_model
+    )
+    logging.info(f"Model size - Client = {mod_sizes[0]:.3f}MiB, Server = {mod_sizes[1]:.3f}MiB, Auxiliary = {mod_sizes[2]:.3f}MiB.")
+
         
     for i in range(s_args["activated"]):
         client_copy_list[i].model.load_state_dict(client_copy_list[0].model.state_dict())
@@ -283,6 +289,17 @@ def main(u_args, s_args, c_args):
         metrics_file = os.path.join(u_args['save_path'], 'metrics.pt')
         torch.save([acc_list, loss_list, comm_load_list], metrics_file)
 
+        # Save trained models
+        utils.save_model(
+            aggregated_client, os.path.join(u_args['save_path'], 'agg_client.pt')
+        )
+        utils.save_model(server.model, os.path.join(u_args['save_path'], 'server.pt'))
+        for i, c in enumerate(client_copy_list):
+            utils.save_model(
+                c.auxiliary_model,
+                os.path.join(u_args['save_path'], f'auxiliary_model_{i}.pt')
+            )
+
     # Plot training and test results
     plots.plot_final_metrics(
         tr_loss_per_client_iter, tr_acc_per_client_iter,
@@ -298,7 +315,7 @@ def main(u_args, s_args, c_args):
 # -----------------------------------------------------------------------------
 if __name__ == '__main__':    
     ## get system configs
-    args = options.args_parser('FSL-Approx')    #---------todo
+    args = options.args_parser('cse_fsl')    #---------todo
     u_args, s_args, c_args = options.group_args(args) #---------todo
     if u_args['save']:
         u_args['plot_path'] = os.path.join(u_args['save_path'], 'plots')

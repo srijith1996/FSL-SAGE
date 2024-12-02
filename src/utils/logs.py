@@ -41,7 +41,7 @@ def configure_logging(logfile_path):
     console_formatter = logging.Formatter(
         "[%(levelname)s, %(funcName)s():%(lineno)s] %(message)s")
     console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.DEBUG)
+    console_handler.setLevel(logging.INFO)
     console_handler.setFormatter(console_formatter)
     logging.root.addHandler(console_handler)
 

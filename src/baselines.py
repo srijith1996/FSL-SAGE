@@ -71,6 +71,10 @@ def train_alg(alg_name, save_path, u_args, s_args, c_args):
         )
         init_all(model, torch.nn.init.normal_, mean=0., std=0.05)
 
+        # compute sizes of different models
+        mod_sizes = utils.compute_model_size(model)
+        logging.info(f"Model size = {mod_sizes[0]:.3f}MiB.")
+
         # train
         aggregated_client, test_loss, acc, comm_load_list = algs.fed_avg(
             s_args['round'], model, criterion, trainLoader_list, testLoader,
@@ -101,6 +105,12 @@ def train_alg(alg_name, save_path, u_args, s_args, c_args):
             client_copy_list[0].model, torch.nn.init.normal_, mean=0., std=0.05
         )
         init_all(server.model, torch.nn.init.normal_, mean=0., std=0.05) 
+
+        # compute sizes of different models
+        mod_sizes = utils.compute_model_size(
+            client_copy_list[0].model, server.model
+        )
+        logging.info(f"Model size - Client = {mod_sizes[0]:.3f}MiB, Server = {mod_sizes[1]:.3f}MiB.")
 
         for i in range(s_args["activated"]):
             client_copy_list[i].model.load_state_dict(
@@ -142,19 +152,20 @@ def train_alg(alg_name, save_path, u_args, s_args, c_args):
 # -----------------------------------------------------------------------------
 if __name__ == "__main__":
 
-    args = options.args_parser('sl_single_server')    #---------todo
-    u_args, s_args, c_args = options.group_args(args, create_dir=False) #---------todo
+    args = options.args_parser()    #---------todo
+    u_args, s_args, c_args = options.group_args(args, create_dir=True) #---------todo
 
-    train_elms = ["fed_avg", "sl_single_server", "sl_multi_server"]
+    #train_elms = ["fed_avg", "sl_single_server", "sl_multi_server"]
 
-    for te in train_elms:
-        args.method = te
-        save_path = f'../saves/baselines/{args.method}'
-        os.makedirs(save_path, exist_ok=True)
+    #for te in train_elms:
+    #args.method = te
+    #save_path = f'../saves/baselines/{args.method}'
+    #os.makedirs(save_path, exist_ok=True)
 
-        logs.configure_logging(os.path.join(save_path, "output.log"))
-        logs.log_hparams(u_args, c_args, s_args, settings_dir=save_path)
+    if u_args['save']:
+        logs.configure_logging(os.path.join(u_args['save_path'], "output.log"))
+        logs.log_hparams(u_args, c_args, s_args, settings_dir=u_args['save_path'])
 
-        train_alg(args.method, save_path, u_args, s_args, c_args)
+    train_alg(args.method, u_args['save_path'], u_args, s_args, c_args)
 
 # -----------------------------------------------------------------------------

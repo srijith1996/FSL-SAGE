@@ -35,7 +35,7 @@ class Client_model_cifar(nn.Module):
                                           beta=0.75, k=1.0)
         self.pool2 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)        
 
-    def forward(self, x):
+    def conv_forward(self, x):
         x = F.relu(self.conv1(x))
         x = self.pool1(x)
         x = self.norm1(x)
@@ -43,6 +43,10 @@ class Client_model_cifar(nn.Module):
         x = F.relu(self.conv2(x))
         x = self.norm2(x)
         x = self.pool2(x)
+        return x
+
+    def forward(self, x):
+        x = self.conv_forward(x)
         x = x.view(-1, x.shape[1] * x.shape[2] * x.shape[3])
         
         return x

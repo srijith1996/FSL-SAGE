@@ -124,3 +124,14 @@ def save_model(model, path):
 
 def load_model(model, path):
     model.load_state_dict(torch.load(path, weights_only=True))
+
+def compute_model_size(*models):
+    sizes = [0.0 for _ in models]
+    for i, m in enumerate(models):
+        for p in m.parameters():
+            sizes[i] += p.nelement() * p.element_size()
+        for p in m.buffers():
+            sizes[i] += p.nelement() * p.element_size()
+        sizes[i] = sizes[i] / (1024 ** 2)
+
+    return sizes

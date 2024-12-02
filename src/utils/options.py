@@ -8,7 +8,7 @@ import torch
 from datetime import datetime
 
 
-def args_parser(method):
+def args_parser(method=None):
     ''' 
         Get the input of system config parameters.
     '''
@@ -89,8 +89,14 @@ def args_parser(method):
     parser.add_argument('--shard', type = int, 
                         help = "setup the shard number per client for noniid")
 
+    if method is None:
+        parser.add_argument('--method', type = str, required=True,
+                            help = "training method to use.  e.g., fsl_sage, cse_fsl, etc.")
 
-    args = parser.parse_args(); args.method = method
+    args = parser.parse_args()
+
+    if method is not None:
+        args.method = method
 
     return args
 
@@ -162,9 +168,11 @@ def group_args(args, create_dir=True):
     train_info	 = f"K{s_args['client']}U{s_args['activated']}E{c_args['epoch']}BR{u_args['batch_round']}-{u_args['seed']}"
 
     timestamp = datetime.now().strftime(r'%y%m%d-%H%M%S')
-    dir_name = client_info + '-' + train_info + '-' + timestamp
+    dir_name = os.path.join(args.method, client_info, train_info)
+    exp_dir = os.path.join(dir_name, timestamp)
     if u_args['save'] and create_dir:
-        p = os.path.join('../saves', dir_name)
+        os.makedirs(os.path.join('../saves', dir_name), exist_ok=True)
+        p = os.path.join('../saves', exp_dir)
         u_args['save_path'] = p
 
         pathlib.Path(p).mkdir(exist_ok=False)
