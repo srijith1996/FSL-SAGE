@@ -50,6 +50,9 @@ def args_parser(method=None):
 
 
     ## server arguments
+    parser.add_argument("--model", required=True, type=str,
+                        help = 'type of model to use for training')
+
     parser.add_argument('--dataset', type = str, choices = ['cifar', 'femnist'],
                         help = "dataset name")
 
@@ -117,6 +120,7 @@ def group_args(args, create_dir=True):
     device = torch.device("cuda") if args.gpu else 'cpu'
     u_args['device']= device
 
+    u_args['model']= args.model
     u_args['dataset']= args.dataset
     u_args['method']= args.method
     u_args['dt']= args.dt
@@ -165,10 +169,10 @@ def group_args(args, create_dir=True):
     ''' other system parameters '''
     ## setup saving paths
     client_info	 = f"{c_args['dataset']}-{u_args['sample']}"
-    train_info	 = f"K{s_args['client']}U{s_args['activated']}E{c_args['epoch']}BR{u_args['batch_round']}-{u_args['seed']}"
+    train_info	 = f"U{s_args['activated']}E{c_args['epoch']}BR{u_args['batch_round']}L{c_args['align']}-{u_args['seed']}"
 
     timestamp = datetime.now().strftime(r'%y%m%d-%H%M%S')
-    dir_name = os.path.join(args.method, client_info, train_info)
+    dir_name = os.path.join(args.method, args.model, client_info, train_info)
     exp_dir = os.path.join(dir_name, timestamp)
     if u_args['save'] and create_dir:
         os.makedirs(os.path.join('../saves', dir_name), exist_ok=True)

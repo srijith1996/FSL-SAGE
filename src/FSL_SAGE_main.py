@@ -18,7 +18,7 @@ import torch.optim as optim
 import copy
 from torch.utils.data import DataLoader
 from utils import options, utils, logs, plots
-from trains import client, aux_models, algs
+from trains import client, aux_models, algs, resnet
 from trains import server as serv
 import logging
 
@@ -64,33 +64,51 @@ def main(u_args, s_args, c_args):
     )
     
     # Define the server, and the list of client copies
-    server = serv.Server(serv.Server_model_cifar(), s_args, device=DEVICE)
     client_copy_list = []
-    
-    for i in range(s_args["activated"]):   
-        client_copy_list.append(client.Client(
-            i, trainLoader_list[i],
-            client.Client_model_cifar(),
-            #aux_models.LinearAuxiliaryModel(2305, server, device=DEVICE, bias=True),
-            #aux_models.LinearGradScalarAuxiliaryModel(
-            #    2304, 10, server, device=DEVICE, align_epochs=100, align_step=5e-2
-            #),
-            aux_models.NNGradScalarAuxiliaryModel(
-                2304, 10, server, device=DEVICE, n_hidden=2304,
-                align_epochs=100, align_step=1e-3, align_batch_size=1000,
-                max_dataset_size=1000
-            ),
-            c_args, device=DEVICE
-        ))
-    
-    # Initial client & server model
-    init_all(client_copy_list[0].model, torch.nn.init.normal_, mean=0., std=0.05) 
-    init_all(client_copy_list[0].auxiliary_model, torch.nn.init.normal_, mean=0., std=0.05) 
-    init_all(server.model, torch.nn.init.normal_, mean=0., std=0.05) 
-    #init_all(client_copy_list[0].model, torch.nn.init.kaiming_normal_) 
-    #init_all(client_copy_list[0].auxiliary_model, torch.nn.init.normal_, mean=0., std=1.0) 
-    #init_all(server.model, torch.nn.init.kaiming_normal_) 
-    
+    if u_args['model'] == 'simple_conv':
+        server = serv.Server(serv.Server_model_cifar(), s_args, device=DEVICE)
+
+        for i in range(s_args["activated"]):
+            client_copy_list.append(client.Client(
+                i, trainLoader_list[i],
+                client.Client_model_cifar(),
+                #aux_models.LinearAuxiliaryModel(2305, server, device=DEVICE, bias=True),
+                aux_models.LinearGradScalarAuxiliaryModel(
+                    2304, 10, server, device=DEVICE,
+                    align_epochs=100, align_step=1e-3, align_batch_size=1000,
+                    max_dataset_size=1000
+                ),
+                #aux_models.NNGradScalarAuxiliaryModel(
+                #    2304, 10, server, device=DEVICE, n_hidden=2304,
+                #    align_epochs=100, align_step=1e-3, align_batch_size=1000,
+                #    max_dataset_size=1000
+                #),
+                c_args, device=DEVICE
+            ))
+        # Initial client & server model
+        init_all(client_copy_list[0].model, torch.nn.init.normal_, mean=0., std=0.05)
+        init_all(client_copy_list[0].auxiliary_model, torch.nn.init.normal_, mean=0., std=0.05)
+        init_all(server.model, torch.nn.init.normal_, mean=0., std=0.05)
+        #init_all(client_copy_list[0].model, torch.nn.init.kaiming_normal_)
+        #init_all(client_copy_list[0].auxiliary_model, torch.nn.init.normal_, mean=0., std=1.0)
+        #init_all(server.model, torch.nn.init.kaiming_normal_)
+
+    elif u_args['model'] == 'resnet18':
+        cmodels, smodel = resnet.resnet18_sl(num_clients=s_args['activated'], num_classes=10)
+        server = serv.Server(smodel, s_args, device=DEVICE)
+        amodels = resnet.resnet18_sl_aux(
+            server, device=DEVICE, num_clients=s_args['activated'], num_classes=10
+        )
+
+        for i in range(s_args['activated']):
+            client_copy_list.append(client.Client(
+                i, trainLoader_list[i], cmodels[i],
+                amodels[i], c_args, device=DEVICE
+            ))
+
+    else:
+        logging.error(f"Model {u_args['model']} is not implemented.")
+
     # compute sizes of different models
     mod_sizes = utils.compute_model_size(
         client_copy_list[0].model, server.model, client_copy_list[0].auxiliary_model

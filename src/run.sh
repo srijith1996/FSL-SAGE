@@ -19,9 +19,9 @@ else
 fi
 
 # Train model on CIFAR dataset
-python "$pyfile" --dataset cifar -seed 200  \
-    -K 3 -L 10 -U 3 -B 128 -E 1 -batch_round $2      \
+python "$pyfile" --dataset cifar --model $2 -seed 200  \
+    -K 3 -L 10 -U 3 -B 128 -E 1 -batch_round $3      \
     --server-lr 0.001 --client-lr 0.001            \
-    --iid --gpu --round $3 --save $opts
+    --iid --gpu --round $4 --save $opts
 #python FSL_main_linear.py --dataset cifar -seed 200 -K 5 -L 2 -U 5 -B 50 -E 1 --lr 0.15 --noniid --gpu --test_round 1 --round 100 --save --shard 6
 # python FSL_main_linear.py --dataset cifar -seed 128 -K 5 -L 10 -U 5 -B 50 -E 1 --lr 0.15 --noniid --gpu --test_round 1 --round 100 --save --shard 6
