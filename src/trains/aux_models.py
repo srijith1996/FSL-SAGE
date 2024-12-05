@@ -301,10 +301,11 @@ class NNGradScalarAuxiliaryModel(GradScalarAuxiliaryModel):
 class LinearGradScalarAuxiliaryModel(GradScalarAuxiliaryModel):
     def __init__(self,
         n_input, n_output, server, n_hidden = None, device='cpu',
-        align_epochs=5, align_step=1e-3, 
+        align_epochs=5, align_step=1e-3, align_batch_size=100,
+        max_dataset_size=1000
     ):
         super(LinearGradScalarAuxiliaryModel, self).__init__(
-            server, device, align_epochs
+            server, device, align_epochs, align_batch_size, max_dataset_size
         )
 
         self.fc = nn.Linear(
@@ -318,10 +319,10 @@ class LinearGradScalarAuxiliaryModel(GradScalarAuxiliaryModel):
         x = F.log_softmax(self.fc(x), dim=1)
         return x
     
-    def forward(self, x, label):
-        x.requires_grad_(True)
-        x = self.server.criterion(self.forward_inner(x), label)
-        
-        return x
+    #def forward(self, x, label):
+    #    x.requires_grad_(True)
+    #    x = self.server.criterion(self.forward_inner(x), label)
+    #    
+    #    return x
  
 # ------------------------------------------------------------------------------
