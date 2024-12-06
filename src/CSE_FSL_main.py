@@ -28,7 +28,6 @@ DEBUG = True
 USE_64BIT = False
 WARM_START = False
 WARM_START_EPOCHS = 5
-AGGREGATE_AUXILIARY_MODELS = False
 DEVICE = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
 if USE_64BIT: torch.set_default_dtype(torch.float64)
@@ -74,10 +73,10 @@ def main(u_args, s_args, c_args):
                 client.Client_model_cifar(),
                 #aux_models.LinearAuxiliaryModel(2305, server, device=DEVICE, bias=True),
                 aux_models.LinearGradScalarAuxiliaryModel(
-                    2304, 10, server, device=DEVICE, align_epochs=100, align_step=5e-2
+                    2304, 10, server, device=DEVICE
                 ),
                 #aux_models.NNGradScalarAuxiliaryModel(
-                #    2304, 10, server, device=DEVICE, n_hidden=2304,
+                #    2304, 10, server, device=DEVICE, n_hidden=500,
                 #    align_epochs=100, align_step=1e-3, align_batch_size=1000,
                 #    max_dataset_size=1000
                 #),
@@ -223,28 +222,25 @@ def main(u_args, s_args, c_args):
         for key in aggregated_client_weights:
             aggregated_client_weights[key] = client_copy_list[0].model.state_dict()[key] * factor[0]
 
-        if AGGREGATE_AUXILIARY_MODELS:
-            aggregated_client_auxiliary = copy.deepcopy(client_copy_list[0].auxiliary_model)
-            aggregated_client_weights_auxiliary = aggregated_client_auxiliary.state_dict()
+        aggregated_client_auxiliary = copy.deepcopy(client_copy_list[0].auxiliary_model)
+        aggregated_client_weights_auxiliary = aggregated_client_auxiliary.state_dict()
 
-            for key in aggregated_client_weights_auxiliary:
-                aggregated_client_weights_auxiliary[key] = client_copy_list[0].auxiliary_model.state_dict()[key] * factor[0]
+        for key in aggregated_client_weights_auxiliary:
+            aggregated_client_weights_auxiliary[key] = client_copy_list[0].auxiliary_model.state_dict()[key] * factor[0]
 
         for i in range(1, s_args["activated"]):
             for key in aggregated_client_weights:
                 aggregated_client_weights[key] += client_copy_list[i].model.state_dict()[key] * factor[i]
-            if AGGREGATE_AUXILIARY_MODELS:
-                for key in aggregated_client_weights_auxiliary:
-                    aggregated_client_weights_auxiliary[key] += client_copy_list[i].auxiliary_model.state_dict()[key] * factor[i]
+            for key in aggregated_client_weights_auxiliary:
+                aggregated_client_weights_auxiliary[key] += client_copy_list[i].auxiliary_model.state_dict()[key] * factor[i]
 
         # Update client model weights and auxiliary weights
         # 2x because upload and download to server
         for i in range(s_args["activated"]):
             client_copy_list[i].model.load_state_dict(aggregated_client_weights)
             comm_load += 2 * utils.calculate_load(client_copy_list[i].model)
-            if AGGREGATE_AUXILIARY_MODELS:
-                client_copy_list[i].auxiliary_model.load_state_dict(aggregated_client_weights_auxiliary)
-                comm_load += 2 * utils.calculate_load(client_copy_list[i].auxiliary_model)
+            client_copy_list[i].auxiliary_model.load_state_dict(aggregated_client_weights_auxiliary)
+            comm_load += 2 * utils.calculate_load(client_copy_list[i].auxiliary_model)
 
         # Inference
         aggregated_client.to(DEVICE)
