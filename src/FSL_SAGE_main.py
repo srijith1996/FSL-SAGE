@@ -235,12 +235,10 @@ def main(u_args, s_args, c_args):
                         )
                
                     # perform alignment for current client
-                    # Note that comm_load needs to be caclulated for the fresh server grads;
-                    # Server needs to send recomputed gradients back to client when
-                    # refresh_data is done
-                    server_grads = client_copy_list[i].auxiliary_model.data_y.clone().detach()
-                    comm_load += server_grads.numel() * server_grads.element_size()
                     client_copy_list[i].auxiliary_model.align()
+
+                    # now the aligned auxiliary model is sent back to client i
+                    comm_load += utils.calculate_load(client_copy_list[i].auxiliary_model)
 
                     # debugging if server remains fixed until next update
                     dbg_saved_server_params = [p.clone().detach() for p in server.model.parameters()]
