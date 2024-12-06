@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
 from utils import utils, options, logs
-from trains import client, algs
+from trains import client, algs, resnet
 from trains import server as serv
 import logging
 
@@ -49,8 +49,9 @@ def get_dataset(u_args, s_args, c_args):
     return trainLoader_list, testLoader, client_train_set
     
 # -----------------------------------------------------------------------------
-def train_alg(alg_name, save_path, u_args, s_args, c_args):
+def train_alg(alg_name, u_args, s_args, c_args):
 
+    save, save_path = u_args['save'], u_args['save_path']
     trainLoader_list, testLoader, client_train_set = get_dataset(
         u_args, s_args, c_args)
     criterion = nn.NLLLoss().to(DEVICE)
@@ -59,6 +60,7 @@ def train_alg(alg_name, save_path, u_args, s_args, c_args):
     dataset_size_list = [
         int(client_train_set[i]['num']) for i in range(s_args["activated"])
     ]
+    print(dataset_size_list)
     total = sum(dataset_size_list)
     factor = [i / total for i in dataset_size_list]
     logging.info(f"Aggregation Factor: {factor}")
@@ -66,10 +68,17 @@ def train_alg(alg_name, save_path, u_args, s_args, c_args):
     # for saving models and info
     if alg_name == 'fed_avg':
 
-        model = nn.Sequential(
-            client.Client_model_cifar(), serv.Server_model_cifar()
-        )
-        init_all(model, torch.nn.init.normal_, mean=0., std=0.05)
+        if u_args['model'] == 'simple_conv':
+            model = nn.Sequential(
+                client.Client_model_cifar(), serv.Server_model_cifar()
+            )
+            init_all(model, torch.nn.init.normal_, mean=0., std=0.05)
+
+        elif u_args['model'] == 'resnet18':
+            model = resnet.resnet18(num_classes=10)
+
+        else:
+            logging.error(f"Model {u_args['model']} is not implemented.")
 
         # compute sizes of different models
         mod_sizes = utils.compute_model_size(model)
@@ -82,29 +91,43 @@ def train_alg(alg_name, save_path, u_args, s_args, c_args):
         )
 
         # save model
-        utils.save_model(
-            aggregated_client, os.path.join(save_path, 'agg_client.pt')
-        )
+        if save:
+            utils.save_model(
+                aggregated_client, os.path.join(save_path, 'agg_client.pt')
+            )
 
     else:
 
-        server = serv.Server(
-            serv.Server_model_cifar(), s_args, device=DEVICE
-        )
         client_copy_list = []
+        if u_args['model'] == 'simple_conv':
+            server = serv.Server(
+                serv.Server_model_cifar(), s_args, device=DEVICE
+            )
     
-        for i in range(s_args["activated"]):   
-            client_copy_list.append(client.Client(
-                i, trainLoader_list[i],
-                client.Client_model_cifar(),
-                None, c_args, device=DEVICE
-            ))
+            for i in range(s_args["activated"]):   
+                client_copy_list.append(client.Client(
+                    i, trainLoader_list[i],
+                    client.Client_model_cifar(),
+                    None, c_args, device=DEVICE
+                ))
 
-        # Initial client & server model
-        init_all(
-            client_copy_list[0].model, torch.nn.init.normal_, mean=0., std=0.05
-        )
-        init_all(server.model, torch.nn.init.normal_, mean=0., std=0.05) 
+            # Initial client & server model
+            init_all(
+                client_copy_list[0].model, torch.nn.init.normal_, mean=0., std=0.05
+            )
+            init_all(server.model, torch.nn.init.normal_, mean=0., std=0.05) 
+
+        elif u_args['model'] == 'resnet18':
+            cmodels, smodel = resnet.resnet18_sl(num_clients=s_args['activated'], num_classes=10)
+            server = serv.Server(smodel, s_args, device=DEVICE)
+            for i in range(s_args['activated']):
+                client_copy_list.append(client.Client(
+                    i, trainLoader_list[i], cmodels[i],
+                    None, c_args, device=DEVICE
+                ))
+
+        else:
+            logging.error(f"Model {u_args['model']} is not implemented.")
 
         # compute sizes of different models
         mod_sizes = utils.compute_model_size(
@@ -135,19 +158,21 @@ def train_alg(alg_name, save_path, u_args, s_args, c_args):
         else:
             raise Exception(f"Unknown algorithm name: {alg_name}")
 
-        utils.save_model(
-            aggregated_client, os.path.join(save_path, 'agg_client.pt')
-        )
-        utils.save_model(server, os.path.join(save_path, 'server.pt'))
+        if save:
+            utils.save_model(
+                aggregated_client, os.path.join(save_path, 'agg_client.pt')
+            )
+            utils.save_model(server, os.path.join(save_path, 'server.pt'))
 
-    save_dict = {'test_loss': test_loss,
-                 'test_acc' : acc,
-                 'comm_load': comm_load_list
-                }
-    filename = os.path.join(save_path, 'test_metrics.json')
-    with open(filename, 'w') as outf:
-            json.dump(save_dict, outf)
-            logging.info(f"[NOTICE] Saved results to '{filename}'.")
+    if save:
+        save_dict = {'test_loss': test_loss,
+                     'test_acc' : acc,
+                     'comm_load': comm_load_list
+                    }
+        filename = os.path.join(save_path, 'test_metrics.json')
+        with open(filename, 'w') as outf:
+                json.dump(save_dict, outf)
+                logging.info(f"[NOTICE] Saved results to '{filename}'.")
     
 # -----------------------------------------------------------------------------
 if __name__ == "__main__":
@@ -165,7 +190,9 @@ if __name__ == "__main__":
     if u_args['save']:
         logs.configure_logging(os.path.join(u_args['save_path'], "output.log"))
         logs.log_hparams(u_args, c_args, s_args, settings_dir=u_args['save_path'])
+    else:
+        u_args['save_path'] = None
 
-    train_alg(args.method, u_args['save_path'], u_args, s_args, c_args)
+    train_alg(args.method, u_args, s_args, c_args)
 
 # -----------------------------------------------------------------------------

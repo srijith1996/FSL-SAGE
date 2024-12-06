@@ -343,7 +343,6 @@ def sl_multi_server(
         
         for i in range(num_clients):
             server_copy_list[i].model.load_state_dict(aggregated_server.state_dict())
-            comm_load += 2 * calculate_load(server_copy_list[i].model)
 
         comm_load_list.append(comm_load)
 

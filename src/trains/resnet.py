@@ -242,7 +242,7 @@ class ResNet(nn.Module):
 
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
-        x = self.fc(x)
+        x = F.log_softmax(self.fc(x), dim=1)
 
         return x
 
