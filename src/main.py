@@ -22,6 +22,10 @@ from algos import run_fl_algorithm
 # -----------------------------------------------------------------------------
 global_torch_device = None
 
+# config torch backends and device 
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
 # -----------------------------------------------------------------------------
 def get_dataloaders(cfg) -> Tuple[List[DataLoader], DataLoader]:
 
@@ -120,7 +124,7 @@ def setup_server_and_clients(
 
 # -----------------------------------------------------------------------------
 @hydra.main(
-    config_path='hydra_config', config_name='config', version_base='1.2'
+    config_path='hydra_config', config_name='config', version_base='1.3'
 )
 def main(cfg: DictConfig):
 
@@ -137,9 +141,6 @@ def main(cfg: DictConfig):
         random.seed(cfg.seed)
         np.random.seed(cfg.seed)
 
-        # config torch backends and device 
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
         global global_torch_device
         global_torch_device = torch.device(cfg.device)
 
