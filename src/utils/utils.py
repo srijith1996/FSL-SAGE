@@ -3,11 +3,9 @@
 # Python version: 3.7
 #import random
 import logging
-from trains import sample
-from utils import dataset
+import os, pathlib
+from datetime import datetime
 import torch
-from torch.utils.data import Dataset
-from torchvision import datasets, transforms
 
 def calculate_load(model):        
     param_size = 0
@@ -22,101 +20,17 @@ def calculate_load(model):
     return size_all_mb
 
 
-def get_dataset(args, u_args):
-    '''
-        Download the dataset (if needed) and depart it for clients.
-
-        Returns:
-            trainSet:	The whole training set
-            testSet:	The whole test set
-            userGroup:	The sample indexs of each client (dict.)
-    '''
-
-    if args['dataset'] == 'cifar':
-        dataDir = '../datas/cifar'
-        
-        #random.seed(10)
-        ## define the image transform rule
-        trainRule = transforms.Compose([
-            transforms.RandomCrop(24),
-            transforms.RandomHorizontalFlip(0.5),
-            transforms.ColorJitter(brightness=0.5, contrast=(0.2,1.8)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=(0.5,0.5,0.5), std=(0.5,0.5,0.5))])
-        testRule = transforms.Compose([
-            transforms.CenterCrop(24),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=(0.5,0.5,0.5), std=(0.5,0.5,0.5))])
-
-        ## access to the dataset
-        trainSet = datasets.CIFAR10(dataDir, train=True, download=True,
-                                    transform=trainRule)
-        testSet = datasets.CIFAR10(dataDir, train=False, download=True,
-                                    transform=testRule)
-
-    elif args['dataset'] == 'femnist':
-        dataDir = '/notebooks/femnist/'
-
-        ## access to the dataset
-        trainSet = dataset.FEMNIST(dataDir, train = True)  #-----todo
-        testSet  = dataset.FEMNIST(dataDir, train = False)
-        print(trainSet.imgs.shape)
-        print(testSet.imgs.shape)
-
-    else:
-        exit(f"[ERROR] Unrecognized dataset '{args['dataset']}'.")
-
-    return trainSet, testSet
-
-
-def depart_dataset(args, s_args, trainSet, testSet):
-    '''
-        Depart the whole dataset for clients.
-
-        Return:
-            clientTrainSets: a dict. of training data idxs keyed by client number.
-            clientTestSets: a dict. of test data idxs keyed by client number.
-    '''
-    if args['sample'] == 'iid':
-        clientTrainSets = sample.sample_iid(args, trainSet)  #------todo
-        clientTestSets = sample.sample_iid(args, testSet)
-    elif args['sample'] == 'noniid':
-        clientTrainSets = sample.sample_noniid(args, s_args, trainSet)
-        clientTestSets = sample.sample_noniid(args, s_args, testSet)
-    else:
-        exit(f"[ERROR] Illegal sample method '{args['sample']}.")
-
-    return (clientTrainSets, clientTestSets)
-
-
-class DatasetSplit(Dataset):
-    '''
-        An abstract Dataset class wrapped around Pytorch Dataset class
-    '''
-    def __init__(self, dataset, idx):
-        self.dataset = dataset
-        self.idx = [int(i) for i in idx]
-
-    def __len__(self):
-        return len(self.idx)
-
-    def __getitem__(self, item):
-        inputs, labels = self.dataset[self.idx[item]]
-        return inputs, labels
-
-
 def show_utils(args):
     '''
         Print system setup profile.
     '''
 
     logging.info('*'*80); print('SYSTEM CONFIGS'); print('*'*80)
-    logging.info(f"  \\__ Method:        {args['method']}")
-    logging.info(f"  \\__ Dataset:       {args['dataset']}")
-    logging.info(f"  \\__ Save:          {args['save']}")
-
-    if args['method'] == 'CSE_FSL':
-        logging.info(f"  \\__ Sample method: {args['sample']}")
+    logging.info(f"  \\__ Algorithm:     {args.algorithm}")
+    logging.info(f"  \\__ Dataset:       {args.dataset.name}")
+    logging.info(f"  \\__ Distribution:  {args.dataset.distribution}")
+    logging.info(f"  \\__ Model:         {args.model}")
+    logging.info(f"  \\__ Save:          {args.save_path}")
 
 
 def save_model(model, path):
@@ -135,3 +49,29 @@ def compute_model_size(*models):
         sizes[i] = sizes[i] / (1024 ** 2)
 
     return sizes
+
+def create_save_dir(cfg):
+    ## setup saving paths
+    client_info = f"{cfg.dataset.name}-{cfg.dataset.distribution}"
+    train_info = f"R{cfg.rounds}m{cfg.num_clients}E{cfg.model.client.epoch}"
+    train_info += f"B{cfg.model.client.batch_size}"
+    if 'fsl' in cfg.algorithm.name:
+        train_info += f"q{cfg.algorithm.server_update_interval}"
+    if cfg.algorithm.name == 'fsl_sage':
+        train_info += f"l{cfg.algorithm.align_interval}"
+    train_info += f"-seed{cfg.seed}"
+
+    timestamp = datetime.now().strftime(r'%y%m%d-%H%M%S')
+    dir_name = os.path.join(cfg.algorithm.name, cfg.model.name, client_info, train_info)
+    exp_dir = os.path.join(dir_name, timestamp)
+    if cfg.save:
+        os.makedirs(os.path.join(cfg.save_dir_prefix, dir_name), exist_ok=True)
+        p = os.path.join(cfg.save_dir_prefix, exp_dir)
+        cfg.save_path = p
+
+        pathlib.Path(p).mkdir(exist_ok=False)
+        logging.info(f"\033[1;36m[NOTICE] Directory '{p}' build.\033[0m")
+
+        # add a plot path in case required
+        cfg['plot_path'] = os.path.join(cfg['save_path'], 'plots')
+        os.makedirs(cfg['plot_path'], exist_ok=True)

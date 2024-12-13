@@ -1,5 +1,5 @@
-prefix_dir : ../saves
-plots_dir  : ../plots
+prefix_dir : ../../saves
+plots_dir  : ../../plots
 plots      : True 
 table      : True
 

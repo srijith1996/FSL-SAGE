@@ -1,0 +1,5 @@
+defaults:
+  - base_algorithm
+name                   : fsl_sage
+server_update_interval : 5
+align_interval         : 10

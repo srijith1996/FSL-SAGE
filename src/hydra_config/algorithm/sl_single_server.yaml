@@ -1,0 +1,3 @@
+defaults:
+  - base_algorithm
+name       : sl_single_server

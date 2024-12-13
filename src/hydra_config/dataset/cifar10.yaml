@@ -1,0 +1,4 @@
+
+name         : cifar10
+distribution : iid
+shard_num    : 10

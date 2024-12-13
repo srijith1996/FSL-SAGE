@@ -1,0 +1,25 @@
+defaults:
+  - dataset   : cifar10
+  - model     : simple_conv
+  - algorithm : fsl_sage
+  - optional dataset_model : ${dataset}_${model}
+
+  - _self_  
+  - override hydra/hydra_logging: disabled  
+  - override hydra/job_logging: disabled  
+
+save   : True
+save_dir_prefix : ../saves
+seed   : 200
+device : cuda
+use_64bit: false
+
+rounds      : 200
+num_clients : 3
+agg_factor  : auto
+
+# to prevent logging and working directory creation by hydra
+hydra:  
+  output_subdir: null  
+  run:  
+    dir: .

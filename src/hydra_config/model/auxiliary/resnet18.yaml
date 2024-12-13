@@ -1,0 +1,6 @@
+defaults:
+  - base_auxiliary
+
+name: resnet18 
+options:
+  num_classes : 10

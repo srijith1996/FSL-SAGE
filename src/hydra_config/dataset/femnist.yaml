@@ -1,0 +1,4 @@
+
+name         : femnist
+distribution : iid
+shard_num    : 10

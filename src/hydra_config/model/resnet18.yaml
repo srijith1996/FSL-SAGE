@@ -1,0 +1,16 @@
+defaults:
+  - auxiliary: resnet18
+
+name: resnet18
+
+client:
+  epoch      : 1
+  batch_size : 128
+  lr         : 0.001
+  options:
+
+
+server:
+  lr : 0.001
+  options:
+    num_classes : 10

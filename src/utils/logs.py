@@ -3,6 +3,7 @@ import logging.handlers
 import yaml
 import os
 from logging.config import dictConfig
+from omegaconf import OmegaConf
 
 logger = logging.getLogger(__name__)
 
@@ -46,12 +47,7 @@ def configure_logging(logfile_path):
     logging.root.addHandler(console_handler)
 
 
-def log_hparams(u_args, c_args, s_args, settings_dir=None):
-    if settings_dir is None: settings_dir = u_args['save_path']
+def log_hparams(cfg, settings_dir=None):
+    if settings_dir is None: settings_dir = cfg.save_path
     with open(os.path.join(settings_dir, 'settings.yml'), 'w') as yml_file:
-        save_dict = {
-            'u_args' : u_args,
-            'server' : s_args,
-            'client' : c_args
-        }
-        yaml.dump(save_dict, yml_file, default_flow_style=False)
+        OmegaConf.save(cfg, yml_file)

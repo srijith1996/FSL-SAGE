@@ -1,0 +1,5 @@
+defaults:
+  base_algorithm
+
+name                   : cse_fsl
+server_update_interval : 5

@@ -1,0 +1,3 @@
+defaults:
+  - base_algorithm
+name       : fed_avg

@@ -1,0 +1,8 @@
+defaults:
+  - base_auxiliary
+
+name: linear_grad_scalar
+options:
+  n_input          : 2304
+  n_output         : 10
+  

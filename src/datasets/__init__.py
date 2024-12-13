@@ -1,0 +1,94 @@
+# -----------------------------------------------------------------------------
+from torch.utils.data import Dataset
+from torchvision import datasets, transforms
+
+from datasets import sample, femnist
+
+# -----------------------------------------------------------------------------
+def get_dataset(cfg):
+    '''
+        Download the dataset (if needed) and depart it for clients.
+
+        Returns:
+            trainSet:	The whole training set
+            testSet:	The whole test set
+            userGroup:	The sample indexs of each client (dict.)
+    '''
+
+    if cfg.name == 'cifar10':
+        dataDir = '../datas/cifar'
+        
+        #random.seed(10)
+        ## define the image transform rule
+        trainRule = transforms.Compose([
+            transforms.RandomCrop(24),
+            transforms.RandomHorizontalFlip(0.5),
+            transforms.ColorJitter(brightness=0.5, contrast=(0.2,1.8)),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.5,0.5,0.5), std=(0.5,0.5,0.5))])
+        testRule = transforms.Compose([
+            transforms.CenterCrop(24),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=(0.5,0.5,0.5), std=(0.5,0.5,0.5))])
+
+        ## access to the dataset
+        trainSet = datasets.CIFAR10(dataDir, train=True, download=True,
+                                    transform=trainRule)
+        testSet = datasets.CIFAR10(dataDir, train=False, download=True,
+                                    transform=testRule)
+
+    elif cfg.name == 'femnist':
+        dataDir = '../datas/femnist/'
+
+        ## access to the dataset
+        trainSet = femnist.FEMNIST(dataDir, train = True)  #-----todo
+        testSet  = femnist.FEMNIST(dataDir, train = False)
+        print(trainSet.imgs.shape)
+        print(testSet.imgs.shape)
+
+    else:
+        exit(f"[ERROR] Unrecognized dataset '{cfg.name}'.")
+
+    return trainSet, testSet
+
+# -----------------------------------------------------------------------------
+def depart_dataset(num_clients, trainSet, testSet, cfg):
+    '''
+        Depart the whole dataset for clients.
+
+        Return:
+            clientTrainSets: a dict. of training data idxs keyed by client number.
+            clientTestSets: a dict. of test data idxs keyed by client number.
+    '''
+    if cfg.distribution == 'iid':
+        clientTrainSets = sample.sample_iid(num_clients, trainSet)  #------todo
+        clientTestSets = sample.sample_iid(num_clients, testSet)
+    elif cfg.distribution == 'noniid':
+        clientTrainSets = sample.sample_noniid(
+            num_clients, cfg.name, trainSet, cfg.shard_num
+        )
+        clientTestSets = sample.sample_noniid(
+            num_clients, cfg.name, testSet, cfg.shard_num
+        )
+    else:
+        exit(f"[ERROR] Illegal sample method: {type}.")
+
+    return (clientTrainSets, clientTestSets)
+
+# -----------------------------------------------------------------------------
+class DatasetSplit(Dataset):
+    '''
+        An abstract Dataset class wrapped around Pytorch Dataset class
+    '''
+    def __init__(self, dataset, idx):
+        self.dataset = dataset
+        self.idx = [int(i) for i in idx]
+
+    def __len__(self):
+        return len(self.idx)
+
+    def __getitem__(self, item):
+        inputs, labels = self.dataset[self.idx[item]]
+        return inputs, labels
+
+# -----------------------------------------------------------------------------

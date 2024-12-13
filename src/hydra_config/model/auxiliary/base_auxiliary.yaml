@@ -1,0 +1,7 @@
+name: base_auxiliary
+options:
+  
+  align_epochs     : 5
+  align_step       : 1e-3
+  align_batch_size : 100
+  max_dataset_size : 1000

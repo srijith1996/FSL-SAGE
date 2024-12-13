@@ -1,0 +1,20 @@
+
+model:
+  name : ${model.name}
+  client: ${model.client}
+  auxiliary:
+    name: ${model.auxiliary.name}
+    options:
+      n_input       : 2304
+      n_output      : 62
+
+      align_epochs  : ${model.auxilary.align_epochs}
+      align_step  : ${model.auxilary.align_step}
+      align_batch_size : ${model.auxilary.align_batch_size}
+      max_dataset_size : ${model.auxiliary.align_batch_size}
+  
+  server:
+    lr : ${model.server.lr}
+    options: 
+      n_input : 2304
+      n_output : 62

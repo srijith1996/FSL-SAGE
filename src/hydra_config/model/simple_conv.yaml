@@ -1,0 +1,18 @@
+defaults:
+  - auxiliary: linear_grad_scalar
+
+name: simple_conv
+
+client:
+  epoch      : 1
+  batch_size : 128
+  lr         : 0.001
+  options:
+
+
+server:
+  lr : 0.001
+
+  options:
+    n_input   : 2304
+    n_output  : 10
