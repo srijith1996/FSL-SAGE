@@ -1,31 +1,60 @@
-<div align="center">
-  <h1 align="center">FSL</h1>
-</div>
+# FSL-SAGE: Federated Split Learning via Smashed Activation Gradient Estimation
 
 ## Introduction
 
-Placeholder: Our FSL paper builds upon the code developed from the CSE-FL paper, noted below.
+Our Federated Split Learning (FSL) algorithm cuts down on communication
+overheads in traditional Split Learning methods by directly estimating
+server-returned gradients at each client using auxiliary models.  The auxiliary
+models are much smaller versions of the server model which are explicitly
+trained to estimate the gradients that the server model would return for the
+client's local input.
 
-## How to run
-* Cifar
-```
-python cse_fsl_main.py --dataset cifar -seed 200 -K 5 -U 5 -B 50 -E 1 --lr 0.15 --iid --gpu --test_round 1 --round 500 --save
-```
-* Femnist
-```
-python cse_fsl_main.py --dataset femnist -seed 200 -K 3500 -U 5 -B 10 -E 1 --lr 0.03 --noniid --gpu --test_round 1 --round 500 --save
+## Requirements
+The project requirements can be simply installed using the environment config
+file [`conda_env.yaml`](conda_env.yaml) as follows:
+```python
+conda env create -f conda_env.yaml
 ```
 
-## Citation
+## Configuration 
+This project is powered by [Hydra](https://hydra.cc/docs/intro/), which allows
+hierarchical configurations and easy running of multiple ML experiments.
+The config files for hydra are located in the folder
+[`hydra_config`](src/hydra_config).
 
-If you use this code in your research, please cite this paper.
+There is a high degree of customizability here; datasets, models and FL
+algorithms can be plugged in using configs.
 
+## Running
+To run FSL-SAGE with defaults from `hydra_config`, you can simply run
+```bash
+python main.py
 ```
-@article{mu2023communication,
-  title={Communication and Storage Efficient Federated Split Learning},
-  author={Mu, Yujia and Shen, Cong},
-  journal={arXiv preprint arXiv:2302.05599},
-  year={2023}
-}
+
+To choose a specific model or algorithm, the Hydra
+[command-line override](https://hydra.cc/docs/advanced/override_grammar/basic/)
+functionality can be used
+```bash
+python main.py model=resnet18 algorithm=cse_fsl
 ```
-# FSL
+
+We also support multiruns in parallel using the
+[hydra-joblib-launcher](https://hydra.cc/docs/plugins/joblib_launcher/)
+Thus, it is possible to run multiple experiments for different combinations of hyperparams, models, datasets or algorithms.
+```bash
+python main.py -m model=resnet18,simple_conv algorithm=fed_avg,sl_single_server,sl_multi_server,cse_fsl,fsl_sage
+```
+The above would create parallel jobs that would run main.py on all combinations
+of specified options
+
+[//]: <> (## Citation)
+[//]: <> (If you use this code in your research, please cite this paper.)
+
+[//]: <> (```)
+[//]: <> (@article{mu2023communication,)
+[//]: <> (  title={Communication and Storage Efficient Federated Split Learning},)
+[//]: <> (  author={Mu, Yujia and Shen, Cong},)
+[//]: <> (  journal={arXiv preprint arXiv:2302.05599},)
+[//]: <> (  year={2023})
+[//]: <> (})
+[//]: <> (```)
