@@ -3,7 +3,7 @@
 # configured hyperparameters.  Hydra is used for configurations and running
 # experiments
 # -----------------------------------------------------------------------------
-import os, logging
+import os, logging, json
 import random
 import numpy as np
 
@@ -146,9 +146,39 @@ def main(cfg: DictConfig):
 
     # configure and run FL algorithm
     server, client_list, test_loader = setup_server_and_clients(cfg)
-    run_fl_algorithm(
+    results = run_fl_algorithm(
         cfg, server, client_list, test_loader, global_torch_device
     )
+
+    # save models and results
+    if cfg.save:
+        file_name = os.path.join(cfg.save_path, 'results.json')
+        with open(file_name, 'w') as outf:
+            json.dump(results, outf)
+            logging.info(f"[NOTICE] Saved results to '{file_name}'.")
+
+        metrics_file = os.path.join(cfg.save_path, 'metrics.pt')
+        torch.save(
+            [results.accuracy, results.loss, results.comm_load],
+            metrics_file
+        )
+
+        # save trained models
+        model_save_path = os.path.join(cfg.save_path, 'models')
+        os.makedirs(model_save_path, exist_ok=True)
+        utils.save_model(
+            results.client_list[0].model,
+            os.path.join(model_save_path, 'agg_client.pt')
+        )
+        utils.save_model(
+            results.server.model,
+            os.path.join(model_save_path, 'server.pt')
+        )
+        for i, c in enumerate(results.client_list):
+            utils.save_model(
+                c.auxiliary_model,
+                os.path.join(model_save_path, f'auxiliary_model_{i}.pt')
+            )
 
 # -----------------------------------------------------------------------------
 if __name__ == '__main__':

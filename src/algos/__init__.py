@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, List
 import os, importlib
 import logging, copy
+from dataclasses import dataclass
 import numpy as np
 import torch
 import torch.nn as nn
@@ -144,6 +145,7 @@ for file in os.listdir(os.path.dirname(__file__)):
         importlib.import_module('algos.' + module)
 
 # ------------------------------------------------------------------------------
+@dataclass
 class FLResults():
     server      : Server   
     client_list : List[Client]
