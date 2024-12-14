@@ -1,45 +1,61 @@
 #!/usr/bin/env python
 # _*_ coding: utf-8 _*_
 # Python version: 3.7
-
+from torchvision.datasets import MNIST, utils
+from PIL import Image
 import os
-import json
-import numpy as np
-from torch.utils.data import Dataset
-  
-    
-class FEMNIST(Dataset):
-    def __init__(self, dataDir, train = False, transform = None):
-        super(FEMNIST, self).__init__()
-        self.train, self.trainsform = train, transform
+import torch
+import shutil
+
+class FEMNIST(MNIST):
+    def __init__(self, root, train=True, transform=None, target_transform=None, download=False):
+        super(MNIST, self).__init__(root, transform=transform, target_transform=target_transform)
+        self.download = download
+        self.download_link = 'https://media.githubusercontent.com/media/GwenLegate/femnist-dataset-PyTorch/main/femnist.tar.gz'
+        self.file_md5 = 'a8a28afae0e007f1acb87e37919a21db'
+        self.train = train
+        self.root = root
+        self.training_file = f'{self.root}/FEMNIST/processed/femnist_train.pt'
+        self.test_file = f'{self.root}/FEMNIST/processed/femnist_test.pt'
+        self.user_list = f'{self.root}/FEMNIST/processed/femnist_user_keys.pt'
+
+        if not os.path.exists(f'{self.root}/FEMNIST/processed/femnist_test.pt') \
+                or not os.path.exists(f'{self.root}/FEMNIST/processed/femnist_train.pt'):
+            if self.download:
+                self.dataset_download()
+            else:
+                raise RuntimeError('Dataset not found, set parameter download=True to download')
 
         if self.train:
-            filePath = os.path.join(dataDir, 'data/train')
+            data_file = self.training_file
         else:
-            filePath = os.path.join(dataDir, 'data/test')
+            data_file = self.test_file
 
-        files = os.listdir(filePath)
-        files = [f for f in files if f.endswith('.json')]
-        files.sort()
-
-        self.imgs, self.labels, self.num = [], [], []
-
-        for f in files:
-            jsonPath = os.path.join(filePath, f)
-            with open(jsonPath, 'r') as inf:
-                data = json.load(inf)
-
-            for ud in data['user_data'].values():
-                self.imgs.extend(ud['x'])
-                self.labels.extend(ud['y'])
-            self.num.extend(data['num_samples'])
-
-        self.imgs = np.asarray(self.imgs).reshape(-1, 28, 28)
-        self.labels = np.asarray(self.labels)
-
+        data_targets_users = torch.load(data_file, weights_only=True)
+        self.data, self.targets, self.users = torch.Tensor(data_targets_users[0]), torch.Tensor(data_targets_users[1]), data_targets_users[2]
+        self.user_ids = torch.load(self.user_list, weights_only=True)
 
     def __getitem__(self, index):
-        return (self.imgs[index], self.labels[index])
+        img, target, user = self.data[index], int(self.targets[index]), self.users[index]
+        img = Image.fromarray(img.numpy(), mode='F')
+        if self.transform is not None:
+            img = self.transform(img)
+        if self.target_transform is not None:
+            target = self.target_transform(target)
+        return img, target #, user
 
-    def __len__(self):
-        return min(len(self.imgs), len(self.labels))
+    def dataset_download(self):
+        paths = [f'{self.root}/FEMNIST/raw/', f'{self.root}/FEMNIST/processed/']
+        for path in paths:
+            if not os.path.exists(path):
+                os.makedirs(path)
+
+        # download files
+        filename = self.download_link.split('/')[-1]
+        utils.download_and_extract_archive(self.download_link, download_root=f'{self.root}/FEMNIST/raw/', filename=filename, md5=self.file_md5)
+
+        files = ['femnist_train.pt', 'femnist_test.pt', 'femnist_user_keys.pt']
+        for file in files:
+            # move to processed dir
+            shutil.move(os.path.join(f'{self.root}/FEMNIST/raw/', file), f'{self.root}/FEMNIST/processed/')
+  
