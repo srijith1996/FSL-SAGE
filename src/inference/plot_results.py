@@ -1,4 +1,5 @@
-import os
+import os, sys
+sys.path.append("../")
 import json, yaml
 import numpy as np
 import matplotlib as mpl
@@ -50,16 +51,36 @@ def accuracy_plot(
         fpostfix = '_comm_load' if x_comm_load else ''
         fig.savefig(os.path.join(plots_dir, f'{metric}{fpostfix}.eps'))
         fig.savefig(os.path.join(plots_dir, f'{metric}{fpostfix}.png'))
-        
+
+def get_path(cfg, exp_cfg, key_name, path):
+    if 'result_files' in exp_cfg.keys():
+        file_name = f"{exp_cfg['result_files'][key_name]}.json"
+    else:
+        file_name = "results.json"
+
+    name = os.path.join(
+        cfg["name_folder"][key_name],
+        exp_cfg['model'],
+        f"{exp_cfg['dataset']}-{exp_cfg['distribution']}",
+        path, file_name
+    )
+    return os.path.join(cfg['prefix_dir'], name)
+
+
 def main():
-    with open('./exp_config.yml', 'r') as yml_file:
+    with open('./exp_config.yaml', 'r') as yml_file:
         config = yaml.safe_load(yml_file)
 
     for exp_name, exp in config['experiments'].items():
+        if 'disable' in exp.keys() and exp['disable']:
+            print(f"Skipping plots for {exp_name}.")
+            continue
+
+        print(f"Plotting for {exp["title"]}")
         results = {
-            k : get_json_file(os.path.join(
-                config['prefix_dir'], v, f"{exp['result_files'][k]}.json"
-            )) for k, v in exp['save_locs'].items()
+            k : get_json_file(
+                get_path(config, exp, k, v)
+            ) for k, v in exp['save_locs'].items()
         }
         #print(results.keys())
 
