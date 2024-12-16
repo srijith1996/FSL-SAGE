@@ -83,6 +83,7 @@ def sample_noniid(num_clients, dataset_name, dataset, shard_num):
             for rand in randSet:
                 dictUser[i]['idxs'] = np.concatenate((dictUser[i]['idxs'],
                                 idx[rand*imageNum: (rand+1)*imageNum]),axis=0)
-            dictUser[i]['num'] = len(randSet)
+
+            dictUser[i]['num'] = len(randSet) * imageNum
 
     return dictUser
