@@ -150,13 +150,19 @@ def main(cfg: DictConfig):
         cfg, server, client_list, test_loader, global_torch_device
     )
 
+    save_res = {
+        'test_loss' : results.loss,
+        'test_acc'  : results.accuracy,
+        'comm_load' : results.comm_load
+    }
+
     # save models and results
     if cfg.save:
         file_name = os.path.join(cfg.save_path, 'results.json')
         with open(file_name, 'w') as outf:
-            json.dump(results, outf)
+            json.dump(save_res, outf)
             logging.info(f"[NOTICE] Saved results to '{file_name}'.")
-
+        
         metrics_file = os.path.join(cfg.save_path, 'metrics.pt')
         torch.save(
             [results.accuracy, results.loss, results.comm_load],
