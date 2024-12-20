@@ -9,6 +9,11 @@ models are much smaller versions of the server model which are explicitly
 trained to estimate the gradients that the server model would return for the
 client's local input.
 
+The algorithm is summarized in the following schematic:
+<div align="center">
+<img src="fsl_sage.png" alt="FSL-SAGE schematic">
+</div>
+
 ## Requirements
 The project requirements can be simply installed using the environment config
 file [`conda_env.yaml`](conda_env.yaml) as follows:
@@ -26,7 +31,8 @@ There is a high degree of customizability here; datasets, models and FL
 algorithms can be plugged in using configs.
 
 ## Running
-To run FSL-SAGE with defaults from `hydra_config`, you can simply run
+To run FSL-SAGE with defaults from [`hydra_config`](src/hydra_config), you can
+simply run
 ```bash
 python main.py
 ```
