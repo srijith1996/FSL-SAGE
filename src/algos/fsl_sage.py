@@ -21,7 +21,6 @@ class FSLSAGE(FLAlgorithm):
         t, i, j, k = rd_cl_ep_it       # (round, client, epoch, iter)
 
         self.clients[i].optimizer.zero_grad()
-        self.clients[i].auxiliary_model.optimizer.zero_grad()
 
         # client feedforward
         splitting_output = self.clients[i].model(x)
@@ -31,7 +30,6 @@ class FSLSAGE(FLAlgorithm):
         out = self.clients[i].auxiliary_model.forward_inner(local_smashed_data) 
         loss = self.criterion(out, y)
         loss.backward()
-        self.clients[i].auxiliary_model.optimizer.step()
         splitting_output.backward(local_smashed_data.grad)
         self.clients[i].optimizer.step()
 
