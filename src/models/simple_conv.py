@@ -19,9 +19,13 @@ class Client_model_cifar(nn.Module):
                                           beta=0.75, k=1.0)
         self.pool2 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)        
 
-        for m in self.parameters():
-            nn.init.normal_(m, mean=0., std=0.05)
-            nn.init.normal_(m, mean=0., std=0.05)
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            nn.init.normal_(module.weight, mean=0., std=0.05)
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
 
     def conv_forward(self, x):
         x = F.relu(self.conv1(x))
@@ -48,9 +52,13 @@ class Server_model_cifar(nn.Module):
         self.fc2 = nn.Linear(in_features=384, out_features=192)
         self.olayer = nn.Linear(in_features=192, out_features=n_output)
 
-        for m in self.parameters():
-            nn.init.normal_(m, mean=0., std=0.05)
-            nn.init.normal_(m, mean=0., std=0.05)
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            nn.init.normal_(module.weight, mean=0., std=0.05)
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
 
     def forward(self, x):
         x = F.relu(self.fc1(x))

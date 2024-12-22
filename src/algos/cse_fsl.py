@@ -27,6 +27,7 @@ class CSEFSL(FLAlgorithm):
         # client feedforward
         splitting_output = self.clients[i].model(x)
         local_smashed_data = splitting_output.clone().detach().requires_grad_(True)
+        smashed_data = splitting_output.clone().detach().requires_grad_(True)
 
         # client backpropagation and update client-side model weights
         out = self.clients[i].auxiliary_model.forward_inner(local_smashed_data) 
@@ -39,7 +40,6 @@ class CSEFSL(FLAlgorithm):
         # server model update
         local_iter = j * self.iters_per_epoch[i] + k
         if local_iter % self.server_update_interval == 0:
-            smashed_data = splitting_output.clone().detach().requires_grad_(True)
             self.comm_load += smashed_data.numel() * smashed_data.element_size()
 
             self.server.optimizer.zero_grad()

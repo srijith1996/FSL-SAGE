@@ -26,13 +26,6 @@ class FSLSAGE(FLAlgorithm):
         splitting_output = self.clients[i].model(x)
         local_smashed_data = splitting_output.clone().detach().requires_grad_(True)
 
-        # client backpropagation and update client-side model weights
-        out = self.clients[i].auxiliary_model.forward_inner(local_smashed_data) 
-        loss = self.criterion(out, y)
-        loss.backward()
-        splitting_output.backward(local_smashed_data.grad)
-        self.clients[i].optimizer.step()
-
         # server model update
         local_iter = j * self.iters_per_epoch[i] + k
         if local_iter % self.server_update_interval == 0:
@@ -57,5 +50,10 @@ class FSLSAGE(FLAlgorithm):
 
             # the aligned auxiliary model is sent back to client i
             self.comm_load += calculate_load(self.clients[i].auxiliary_model)
+
+        # client backpropagation and update client-side model weights
+        client_grad_approx = self.clients[i].auxiliary_model(local_smashed_data, y) 
+        splitting_output.backward(client_grad_approx)
+        self.clients[i].optimizer.step()
 
 # ------------------------------------------------------------------------------

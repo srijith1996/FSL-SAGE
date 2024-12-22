@@ -162,12 +162,15 @@ class LinearGradScalarAuxiliaryModel(GradScalarAuxiliaryModel):
             in_features=n_input, out_features=n_output, bias=True
         )
         self.align_epochs = align_epochs
-
         self.set_optimizer(align_step)
 
-        for m in self.parameters():
-            nn.init.normal_(m, mean=0., std=0.05)
-            nn.init.normal_(m, mean=0., std=0.05)
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            nn.init.normal_(module.weight, mean=0., std=0.05)
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
 
     def forward_inner(self, x):
         x = F.log_softmax(self.fc(x), dim=1)
