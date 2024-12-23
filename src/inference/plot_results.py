@@ -58,12 +58,14 @@ def get_path(cfg, exp_cfg, key_name, path):
     else:
         file_name = "results.json"
 
-    name = os.path.join(
-        cfg["name_folder"][key_name],
-        exp_cfg['model'],
-        f"{exp_cfg['dataset']}-{exp_cfg['distribution']}",
-        path, file_name
-    )
+    name = os.path.join(path, file_name)
+    if 'full_dirs' not in exp_cfg or not exp_cfg['full_dirs']:
+        name = os.path.join(
+            cfg["name_folder"][key_name],
+            exp_cfg['model'],
+            f"{exp_cfg['dataset']}-{exp_cfg['distribution']}",
+            name
+        )
     return os.path.join(cfg['prefix_dir'], name)
 
 

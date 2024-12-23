@@ -169,8 +169,9 @@ class LinearGradScalarAuxiliaryModel(GradScalarAuxiliaryModel):
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
             nn.init.normal_(module.weight, mean=0., std=0.05)
-            if module.bias is not None:
-                nn.init.zeros_(module.bias)
+            nn.init.normal_(module.bias, mean=0., std=0.05)
+            #if module.bias is not None:
+            #    nn.init.zeros_(module.bias)
 
     def forward_inner(self, x):
         x = F.log_softmax(self.fc(x), dim=1)

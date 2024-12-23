@@ -24,8 +24,9 @@ class Client_model_cifar(nn.Module):
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
             nn.init.normal_(module.weight, mean=0., std=0.05)
-            if module.bias is not None:
-                nn.init.zeros_(module.bias)
+            nn.init.normal_(module.bias, mean=0., std=0.05)
+            #if module.bias is not None:
+            #    nn.init.zeros_(module.bias)
 
     def conv_forward(self, x):
         x = F.relu(self.conv1(x))
@@ -57,8 +58,9 @@ class Server_model_cifar(nn.Module):
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
             nn.init.normal_(module.weight, mean=0., std=0.05)
-            if module.bias is not None:
-                nn.init.zeros_(module.bias)
+            nn.init.normal_(module.bias, mean=0., std=0.05)
+            #if module.bias is not None:
+            #    nn.init.zeros_(module.bias)
 
     def forward(self, x):
         x = F.relu(self.fc1(x))
