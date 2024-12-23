@@ -59,6 +59,9 @@ def create_save_dir(cfg):
         train_info += f"q{cfg.algorithm.server_update_interval}"
     if cfg.algorithm.name == 'fsl_sage':
         train_info += f"l{cfg.algorithm.align_interval}"
+    if cfg.dataset.distribution == 'noniid_dirichlet':
+        train_info += f'-alp{cfg.dataset.alpha:.2e}'
+
     train_info += f"-seed{cfg.seed}"
 
     timestamp = datetime.now().strftime(r'%y%m%d-%H%M%S')

@@ -70,6 +70,18 @@ def depart_dataset(num_clients, trainSet, testSet, cfg):
         clientTestSets = sample.sample_noniid(
             num_clients, cfg.name, testSet, cfg.shard_num
         )
+    elif cfg.distribution == 'noniid_dirichlet':
+        assert 'alpha' in cfg, \
+        "config `alpha` required if distribution in `noniid_dirichlet`."
+        assert 'num_classes' in cfg, \
+        "config `num_classes` required if distribution in `noniid_dirichlet`."
+
+        clientTrainSets = sample.noniid_dirichlet_equal_split(
+            num_clients, trainSet, alpha=cfg.alpha, num_classes=cfg.num_classes
+        )
+        clientTestSets = sample.noniid_dirichlet_equal_split(
+            num_clients, testSet, alpha=cfg.alpha, num_classes=cfg.num_classes
+        )
     else:
         exit(f"[ERROR] Illegal sample method: {type}.")
 
