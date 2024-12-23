@@ -23,8 +23,8 @@ experiments:
       FedAvg    : R200m3E1B128-seed200/241215-111308
       SplitFed-MS  : R200m3E1B128-seed200/241215-111308
       SplitFed-SS  : R200m3E1B128-seed200/241215-111308
-      CSE-FSL   : R200m3E1B128q5-seed200/241215-111307
-      FSL-SAGE  : R200m3E1B128q5l10-seed200/241215-111936
+      CSE-FSL   : R200m3E1B128q5-seed200/241221-220456
+      FSL-SAGE  : R200m3E1B128q5l10-seed200/241222-142715
 
   cifar10/simpleconv_linaux/noniid:
     disable : false
@@ -104,3 +104,13 @@ experiments:
       $l=5$   :  results
       $l=10$  :  results
       $l=20$  :  results
+
+  cifar10_dbg/simpleconv:
+    disable : false
+    full_dirs: true
+    title : none
+    desc : none
+    test_ids : [0,1]
+    save_locs:
+      CSE : saves_dbg/cse_fsl/simple_conv/cifar-iid/U3E1BR5L10-200/241222-013655
+      SAGE : saves_dbg/fsl_sage/simple_conv/cifar-iid/U3E1BR5L10-200/241222-013555
