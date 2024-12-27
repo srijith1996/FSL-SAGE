@@ -4,6 +4,8 @@
 #import random
 import logging
 import os, pathlib
+import yaml
+import hashlib
 from datetime import datetime
 import torch
 
@@ -50,6 +52,20 @@ def compute_model_size(*models):
 
     return sizes
 
+def sha256_of_yaml(yaml_dict):
+    """Calculates the SHA-256 hash of a YAML dictionary."""
+
+    # Serialize the dictionary to a YAML string
+    yaml_string = yaml.dump(yaml_dict, sort_keys=True)
+
+    # Create a SHA-256 hash object
+    hash_object = hashlib.sha256(yaml_string.encode('utf-8'))
+
+    # Get the hexadecimal representation of the hash
+    hex_digest = hash_object.hexdigest()
+
+    return hex_digest
+
 def create_save_dir(cfg):
     ## setup saving paths
     client_info = f"{cfg.dataset.name}-{cfg.dataset.distribution}"
@@ -70,6 +86,7 @@ def create_save_dir(cfg):
     if cfg.save:
         os.makedirs(os.path.join(cfg.save_dir_prefix, dir_name), exist_ok=True)
         p = os.path.join(cfg.save_dir_prefix, exp_dir)
+        if os.path.exists(p): p = os.path.join(p, sha256_of_yaml(cfg))
         cfg.save_path = p
 
         pathlib.Path(p).mkdir(exist_ok=False)
