@@ -160,7 +160,7 @@ def _resnet_sl_auxiliary(
 
 # ------------------------------------------------------------------------------
 @register_auxiliary_model("resnet18", disable_check=True)
-def resnet18_sl_aux(server, *,
+def resnet18_sl_aux(server, layers=None,
     weights: Optional[Any] = None, progress: bool = True, num_classes: int = 10,
     device='cpu', **kwargs: Any
 ):
@@ -183,8 +183,9 @@ def resnet18_sl_aux(server, *,
     .. autoclass:: torchvision.models.ResNet18_Weights
         :members:
     """
+    if layers is None: layers = [2, 2, 2, 2]
     return _resnet_sl_auxiliary(
-        server, BasicBlock, [2, 2, 2, 2], weights, progress,
+        server, BasicBlock, layers, weights, progress,
         num_classes=num_classes, device=device, **kwargs
     )
 

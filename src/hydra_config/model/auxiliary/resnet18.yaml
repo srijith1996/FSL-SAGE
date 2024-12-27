@@ -4,3 +4,4 @@ defaults:
 name: resnet18 
 options:
   num_classes : 10
+  layers      : [2,2,2,2]
