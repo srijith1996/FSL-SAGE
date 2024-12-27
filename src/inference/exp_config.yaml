@@ -12,7 +12,7 @@ name_folder:
 
 experiments:
   cifar10/simpleconv_linaux/iid:
-    disable : false
+    disable : true
     title : CIFAR10; iid; SimpleConv; LinearAux 
     desc  : Simple convolutional classifier model with a linear auxiliary network
     test_ids: [0, 1, 2, 3, 4]
@@ -27,7 +27,7 @@ experiments:
       FSL-SAGE  : R200m3E1B128q5l10-seed200/241222-142715
 
   cifar10/simpleconv_linaux/noniid:
-    disable : false
+    disable : true
     title : CIFAR10; noniid; SimpleConv; LinearAux 
     desc  : Simple convolutional classifier model with a linear auxiliary network, on non-iid partitioned CIFAR10
     test_ids: [0, 1, 2, 3, 4]
@@ -59,7 +59,7 @@ experiments:
       FSL-SAGE (Aux2) : results
 
   cifar10/resnet18/iid:
-    disable : false
+    disable : true
     title : CIFAR10; iid, Resnet18; Cut@L3
     desc  : Resnet18 cut at Layer 3 and run for 500 rounds
     test_ids : [0, 1, 2, 3, 4]
@@ -74,7 +74,7 @@ experiments:
       FSL-SAGE  : R200m3E1B128q5l10-seed200/241215-115904
 
   cifar10/resnet18/noniid:
-    disable : false
+    disable : true
     title : CIFAR10; noniid, Resnet18; Cut@L3
     desc  : Resnet18 cut at Layer 3 and run for 500 rounds for non-iid client data
     test_ids : [0, 1, 2, 3, 4]
@@ -106,7 +106,7 @@ experiments:
       $l=20$  :  results
 
   cifar10_dbg/simpleconv:
-    disable : false
+    disable : true
     full_dirs: true
     title : none
     desc : none
@@ -114,3 +114,159 @@ experiments:
     save_locs:
       CSE : saves_dbg/cse_fsl/simple_conv/cifar-iid/U3E1BR5L10-200/241222-013655
       SAGE : saves_dbg/fsl_sage/simple_conv/cifar-iid/U3E1BR5L10-200/241222-013555
+
+  cifar10/resnet18/noniid_dirichlet:
+    title : CIFAR10; non_iid; ResNet18 
+    type : dirichlet_alpha
+    desc  : test accuracy vs dirichlet alpha (measure of non-iidness of client data)
+    test_ids: [0, 1]
+    model : resnet18
+    dataset : cifar10
+    distribution : noniid_dirichlet
+    save_locs:
+      CSE-FSL:
+        0.01   : R200m3E1B128q5-alp1.00e-02-seed200/241223-003939
+        0.1    : R200m3E1B128q5-alp1.00e-01-seed200/241223-013139
+        1.0    : R200m3E1B128q5-alp1.00e+00-seed200/241223-013300
+        10.0   : R200m3E1B128q5-alp1.00e+01-seed200/241223-013301
+        100.0  : R200m3E1B128q5-alp1.00e+02-seed200/241223-013302
+        1000.0 : R200m3E1B128q5-alp1.00e+03-seed200/241223-013307
+        10000.0: R200m3E1B128q5-alp1.00e+04-seed200/241223-013329
+      FSL-SAGE:
+        0.01   : R200m3E1B128q5l10-alp1.00e-02-seed200/241223-003938
+        0.1    : R200m3E1B128q5l10-alp1.00e-01-seed200/241223-003938
+        1.0    : R200m3E1B128q5l10-alp1.00e+00-seed200/241223-003938
+        10.0   : R200m3E1B128q5l10-alp1.00e+01-seed200/241223-003938
+        100.0  : R200m3E1B128q5l10-alp1.00e+02-seed200/241223-003938
+        1000.0 : R200m3E1B128q5l10-alp1.00e+03-seed200/241223-003938
+        10000.0: R200m3E1B128q5l10-alp1.00e+04-seed200/241223-003938
+
+  cifar10/resnet18/noniid_dirichlet/accuracy:
+    disable: False
+    title : CIFAR10; non_iid; ResNet18 
+    desc  : test accuracy for various dirichlet alpha (measure of non-iidness of client data)
+    test_ids: [0,1,2,3,4,5,6,7,8,9,10,11,12,13]
+    colorscheme: [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1]
+    legend : names_only
+    model : resnet18
+    dataset : cifar10
+    distribution : noniid_dirichlet
+    save_locs:
+      CSE-FSL ($\alpha = 10000$):   R200m3E1B128q5-alp1.00e+04-seed200/241223-013329
+      CSE-FSL ($\alpha = 1000$):    R200m3E1B128q5-alp1.00e+03-seed200/241223-013307
+      CSE-FSL ($\alpha = 100$):     R200m3E1B128q5-alp1.00e+02-seed200/241223-013302
+      CSE-FSL ($\alpha = 10$):      R200m3E1B128q5-alp1.00e+01-seed200/241223-013301
+      CSE-FSL ($\alpha = 1$):       R200m3E1B128q5-alp1.00e+00-seed200/241223-013300
+      CSE-FSL ($\alpha = 0.1$):     R200m3E1B128q5-alp1.00e-01-seed200/241223-013139
+      CSE-FSL ($\alpha = 0.01$):    R200m3E1B128q5-alp1.00e-02-seed200/241223-003939
+      FSL-SAGE ($\alpha = 10000$):  R200m3E1B128q5l10-alp1.00e+04-seed200/241223-003938
+      FSL-SAGE ($\alpha = 1000$):   R200m3E1B128q5l10-alp1.00e+03-seed200/241223-003938
+      FSL-SAGE ($\alpha = 100$):    R200m3E1B128q5l10-alp1.00e+02-seed200/241223-003938
+      FSL-SAGE ($\alpha = 10$):     R200m3E1B128q5l10-alp1.00e+01-seed200/241223-003938
+      FSL-SAGE ($\alpha = 1$):      R200m3E1B128q5l10-alp1.00e+00-seed200/241223-003938
+      FSL-SAGE ($\alpha = 0.1$):    R200m3E1B128q5l10-alp1.00e-01-seed200/241223-003938
+      FSL-SAGE ($\alpha = 0.01$):   R200m3E1B128q5l10-alp1.00e-02-seed200/241223-003938
+
+  cifar10/resnet18/noniid_dirichlet/accuracy_l3_vs_dirichlet:
+    title : CIFAR10; non_iid; ResNet18; align @ 3rds; acc_vs_dirichlet
+    type : dirichlet_alpha
+    desc  : test accuracy vs dirichlet alpha (measure of non-iidness of client data)
+    test_ids: [0, 1]
+    model : resnet18
+    dataset : cifar10
+    distribution : noniid_dirichlet
+    save_locs:
+      CSE-FSL:
+        10000.0: R200m3E1B128q5-alp1.00e+04-seed200/241223-013329
+        1000.0 : R200m3E1B128q5-alp1.00e+03-seed200/241223-013307
+        100.0  : R200m3E1B128q5-alp1.00e+02-seed200/241223-013302
+        10.0   : R200m3E1B128q5-alp1.00e+01-seed200/241223-013301
+        1.     : R200m3E1B128q5-alp1.00e+00-seed200/241223-013300
+        0.1    : R200m3E1B128q5-alp1.00e-01-seed200/241223-013139
+        0.01   : R200m3E1B128q5-alp1.00e-02-seed200/241223-003939
+      FSL-SAGE:
+        10000.0: R200m3E1B128q5l3-alp1.00e+04-seed200/241224-013140
+        1000.0 : R200m3E1B128q5l3-alp1.00e+03-seed200/241224-013122
+        100.0  : R200m3E1B128q5l3-alp1.00e+02-seed200/241224-013057
+        10.0   : R200m3E1B128q5l3-alp1.00e+01-seed200/241224-013054
+        1.0    : R200m3E1B128q5l3-alp1.00e+00-seed200/241224-013054
+        0.1    : R200m3E1B128q5l3-alp1.00e-01-seed200/241224-011549
+        0.01   : R200m3E1B128q5l3-alp1.00e-02-seed200/241224-001142
+
+  cifar10/resnet18/noniid_dirichlet/accuracy_l3:
+    disable: False
+    title : CIFAR10; non_iid; ResNet18; align @ 3rds
+    desc  : test accuracy for various dirichlet alpha (measure of non-iidness of client data)
+    test_ids: [0,1,2,3,4,5,6,7,8,9,10,11,12,13]
+    colorscheme: [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1]
+    legend : names_only
+    model : resnet18
+    dataset : cifar10
+    distribution : noniid_dirichlet
+    save_locs:
+      CSE-FSL ($\alpha = 10000$):   R200m3E1B128q5-alp1.00e+04-seed200/241223-013329
+      CSE-FSL ($\alpha = 1000$):    R200m3E1B128q5-alp1.00e+03-seed200/241223-013307
+      CSE-FSL ($\alpha = 100$):     R200m3E1B128q5-alp1.00e+02-seed200/241223-013302
+      CSE-FSL ($\alpha = 10$):      R200m3E1B128q5-alp1.00e+01-seed200/241223-013301
+      CSE-FSL ($\alpha = 1$):       R200m3E1B128q5-alp1.00e+00-seed200/241223-013300
+      CSE-FSL ($\alpha = 0.1$):     R200m3E1B128q5-alp1.00e-01-seed200/241223-013139
+      CSE-FSL ($\alpha = 0.01$):    R200m3E1B128q5-alp1.00e-02-seed200/241223-003939
+      FSL-SAGE ($\alpha = 10000$):  R200m3E1B128q5l3-alp1.00e+04-seed200/241224-013140
+      FSL-SAGE ($\alpha = 1000$):   R200m3E1B128q5l3-alp1.00e+03-seed200/241224-013122
+      FSL-SAGE ($\alpha = 100$):    R200m3E1B128q5l3-alp1.00e+02-seed200/241224-013057
+      FSL-SAGE ($\alpha = 10$):     R200m3E1B128q5l3-alp1.00e+01-seed200/241224-013054
+      FSL-SAGE ($\alpha = 1$):      R200m3E1B128q5l3-alp1.00e+00-seed200/241224-013054
+      FSL-SAGE ($\alpha = 0.1$):    R200m3E1B128q5l3-alp1.00e-01-seed200/241224-011549
+      FSL-SAGE ($\alpha = 0.01$):   R200m3E1B128q5l3-alp1.00e-02-seed200/241224-001142
+
+  cifar10/resnet18/noniid_dirichlet/accuracy_l1_vs_dirichlet:
+    title : CIFAR10; non_iid; ResNet18; align @ 1 rds; acc_vs_dirichlet
+    type : dirichlet_alpha
+    desc  : test accuracy vs dirichlet alpha (measure of non-iidness of client data)
+    test_ids: [0, 1]
+    model : resnet18
+    dataset : cifar10
+    distribution : noniid_dirichlet
+    save_locs:
+      CSE-FSL:
+        10000.0: R200m3E1B128q5-alp1.00e+04-seed200/241223-013329
+        1000.0 : R200m3E1B128q5-alp1.00e+03-seed200/241223-013307
+        100.0  : R200m3E1B128q5-alp1.00e+02-seed200/241223-013302
+        10.0   : R200m3E1B128q5-alp1.00e+01-seed200/241223-013301
+        1.     : R200m3E1B128q5-alp1.00e+00-seed200/241223-013300
+        0.1    : R200m3E1B128q5-alp1.00e-01-seed200/241223-013139
+        0.01   : R200m3E1B128q5-alp1.00e-02-seed200/241223-003939
+      FSL-SAGE:
+        10000.0: R200m3E1B128q5l1-alp1.00e+04-seed200/241224-001142
+        1000.0 : R200m3E1B128q5l1-alp1.00e+03-seed200/241224-001142
+        100.0  : R200m3E1B128q5l1-alp1.00e+02-seed200/241224-001142
+        10.0   : R200m3E1B128q5l1-alp1.00e+01-seed200/241224-001142
+        1.0    : R200m3E1B128q5l1-alp1.00e+00-seed200/241224-001141
+        0.1    : R200m3E1B128q5l1-alp1.00e-01-seed200/241224-001141
+        0.01   : R200m3E1B128q5l1-alp1.00e-02-seed200/241224-001141
+
+  cifar10/resnet18/noniid_dirichlet/accuracy_l1:
+    disable: False
+    title : CIFAR10; non_iid; ResNet18; align @ 3rds
+    desc  : test accuracy for various dirichlet alpha (measure of non-iidness of client data)
+    test_ids: [0,1,2,3,4,5,6,7,8,9,10,11,12,13]
+    colorscheme: [0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1]
+    legend : names_only
+    model : resnet18
+    dataset : cifar10
+    distribution : noniid_dirichlet
+    save_locs:
+      CSE-FSL ($\alpha = 10000$):   R200m3E1B128q5-alp1.00e+04-seed200/241223-013329
+      CSE-FSL ($\alpha = 1000$):    R200m3E1B128q5-alp1.00e+03-seed200/241223-013307
+      CSE-FSL ($\alpha = 100$):     R200m3E1B128q5-alp1.00e+02-seed200/241223-013302
+      CSE-FSL ($\alpha = 10$):      R200m3E1B128q5-alp1.00e+01-seed200/241223-013301
+      CSE-FSL ($\alpha = 1$):       R200m3E1B128q5-alp1.00e+00-seed200/241223-013300
+      CSE-FSL ($\alpha = 0.1$):     R200m3E1B128q5-alp1.00e-01-seed200/241223-013139
+      CSE-FSL ($\alpha = 0.01$):    R200m3E1B128q5-alp1.00e-02-seed200/241223-003939
+      FSL-SAGE ($\alpha = 10000$):  R200m3E1B128q5l1-alp1.00e+04-seed200/241224-001142
+      FSL-SAGE ($\alpha = 1000$):   R200m3E1B128q5l1-alp1.00e+03-seed200/241224-001142
+      FSL-SAGE ($\alpha = 100$):    R200m3E1B128q5l1-alp1.00e+02-seed200/241224-001142
+      FSL-SAGE ($\alpha = 10$):     R200m3E1B128q5l1-alp1.00e+01-seed200/241224-001142
+      FSL-SAGE ($\alpha = 1$):      R200m3E1B128q5l1-alp1.00e+00-seed200/241224-001141
+      FSL-SAGE ($\alpha = 0.1$):    R200m3E1B128q5l1-alp1.00e-01-seed200/241224-001141
+      FSL-SAGE ($\alpha = 0.01$):   R200m3E1B128q5l1-alp1.00e-02-seed200/241224-001141
