@@ -167,13 +167,17 @@ class GradScalarAuxiliaryModel(AuxiliaryModel):
                 loss.backward()
                 self.optimizer.step()
             if i % 10 == 0:
-                logging.debug(f" --- Epoch {i:4d}/{self.align_epochs}, Loss {loss:.4e}")
+                logging.debug(
+                    f" --- Epoch {i:4d}/{self.align_epochs}, Loss {loss:.4e}"
+                )
             bar.set_postfix(loss=loss.item())
             if self.lr_scheduler is not None: self.lr_scheduler.step()
 
     def forward(self, x, label):
         x.requires_grad_(True)
-        out = self.server.criterion(self.forward_inner(x), label)
+        outs = self.forward_inner(x)
+        out = outs[0] if isinstance(outs, tuple) else outs
+        out = self.server.criterion(out, label)
         aux_out = torch.autograd.grad(out, x, create_graph=True)[0]
         return aux_out
 

@@ -1,0 +1,29 @@
+defaults:
+  - auxiliary: gpt2
+
+name: gpt2
+
+options:
+  vocab_size: 50257
+  n_positions: 1024
+  n_ctx: 1024
+  n_embd: 768
+  n_client_layer: 3
+  n_server_layer: 9
+  n_auxiliary_layer: 2
+  n_head: 12
+  layer_norm_epsilon: 1e-5
+  initializer_range: 0.02
+  lora_attn_dim: 0
+  lora_attn_alpha: 128
+  lora_dropout: 0.0
+  lora_r_dropout: 0.0
+  fix_dropout: 0.0
+
+client:
+  epoch      : 1
+  batch_size : 16
+  lr         : 0.001
+
+server:
+  lr : 0.001

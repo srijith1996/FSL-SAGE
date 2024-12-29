@@ -65,7 +65,7 @@ class Server_model_cifar(nn.Module):
     def forward(self, x):
         x = F.relu(self.fc1(x))
         x = F.relu(self.fc2(x))
-        x = F.log_softmax(self.olayer(x), dim=1)
+        x = self.olayer(x)
         
         return x
 
