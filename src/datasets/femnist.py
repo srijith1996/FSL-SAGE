@@ -34,20 +34,6 @@ def _check_create_train_test(all_examples_file, test_split, train):
             writer_train_labels = writer_labels[train_ids]
             writer_test_images = writer_images[test_ids]
             writer_test_labels = writer_labels[test_ids]
-
-            train_images.append(writer_train_images)
-            train_labels.append(writer_train_labels)
-            test_images.append(writer_test_images)
-            test_labels.append(writer_test_labels)
-
-        train_images = np.concatenate(train_images, axis=0)
-        train_labels = np.concatenate(train_labels, axis=0)
-        test_images = np.concatenate(test_images, axis=0)
-        test_labels = np.concatenate(test_labels, axis=0)
-
-        train_images = np.expand_dims(train_images, axis=1)
-        test_images = np.expand_dims(test_images, axis=1)
-
         train_h5 = h5py.File(train_file_path, 'w')
         train_h5.create_dataset("images", data=train_images, dtype="uint8")
         train_h5.create_dataset("labels", data=train_labels, dtype="uint8")

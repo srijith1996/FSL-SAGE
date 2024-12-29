@@ -1,0 +1,4 @@
+name : image_classification
+metric_names:
+  - loss
+  - accuracy

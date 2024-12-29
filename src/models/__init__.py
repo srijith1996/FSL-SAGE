@@ -191,6 +191,44 @@ class Server():
         else:
             self.criterion = nn.NLLLoss().to(device)
 
+    def forward(self, pred, target, mask=None):
+
+        loss = self.cel(pred, target)
+        if mask is None:
+            mask = torch.ones(
+                loss.shape, dtype=loss.dtype, device=loss.device
+            )
+
+        loss = loss * mask 
+        return loss.sum() / (mask.sum() + 0.0001)
+
+# -----------------------------------------------------------------------------
+class Server():
+    model: nn.Module
+    criterion : Callable
+    optimizer : Any
+    alignment_loss: Callable
+
+    def __init__(self, server, cfg, device='cpu'):
+        self.model = server
+
+        if 'label_smooth' not in cfg:
+            with open_dict(cfg): cfg['label_smooth'] = 0.0
+        self.criterion = MaskingCrossEntropyLoss(smoothing=cfg.label_smooth)
+        self.alignment_loss = nn.MSELoss().to(device)
+
+        if 'optimizer' in cfg:
+            with open_dict(cfg): cfg.optimizer['lr'] = cfg.lr
+            self.optimizer = opt_utils.create_adam_optimizer_from_args(
+                self.model.parameters(), cfg.optimizer,
+                grouped_parameters=None
+            )
+        else:
+            self.optimizer = Adam(
+                self.model.parameters(),
+                lr=cfg.lr
+            )
+
 # -----------------------------------------------------------------------------
 # Automatically import any Python files in the models/ directory
 for file in os.listdir(os.path.dirname(__file__)):

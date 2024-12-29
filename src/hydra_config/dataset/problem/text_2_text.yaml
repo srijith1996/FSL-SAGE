@@ -1,0 +1,3 @@
+name: text_2_text
+metric_names:
+  - loss
