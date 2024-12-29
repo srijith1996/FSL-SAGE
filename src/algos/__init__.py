@@ -12,6 +12,7 @@ from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 from models import Server, Client
 from utils.utils import calculate_load
+from utils import metrics as met_utils
 
 # ------------------------------------------------------------------------------
 def aggregate_models(model_list, weights, device='cpu'):
@@ -83,7 +84,7 @@ class FLAlgorithm(ABC):
         pass
     
     @abstractmethod
-    def client_step(self, x, y):
+    def client_step(self, x, y, *args):
         pass
 
     def aggregate_clients(self):
@@ -98,24 +99,6 @@ class FLAlgorithm(ABC):
 
     def aggregate(self):
         return self.aggregate_clients()
-
-    def evaluate(self):
-        test_correct = 0
-        test_loss = []
-        with torch.no_grad():
-            for x, y in self.test_loader:
-                x = x.to(self.device).double() if self.use_64bit \
-                    else x.to(self.device).float()
-                y = y.to(self.device).long()
-                out = self.full_model(x)
-                batch_loss = self.criterion(out, y)
-                test_loss.append(batch_loss.item())
-                _, predicted = torch.max(out.data, 1)
-                test_correct += predicted.eq(y.view_as(predicted)).sum().item()
-            loss = sum(test_loss) / len(test_loss)
-            acc =  test_correct / len(self.test_loader.dataset)
-
-        return acc, loss
 
 # ------------------------------------------------------------------------------
 # maps alg_name: str -> instance of FLAlgorithm
@@ -149,9 +132,30 @@ for file in os.listdir(os.path.dirname(__file__)):
 class FLResults():
     server      : Server   
     client_list : List[Client]
-    loss        : List[float]
-    accuracy    : List[float]
     comm_load   : List[float]
+    metric_lists : Dict[str, List]
+
+# ------------------------------------------------------------------------------
+def evaluate(
+    model, test_loader, metric_fns=met_utils.METRIC_FUNCTION_DICT,
+    use_64bit=False, device='cpu'
+):
+    metrics = {}
+    with torch.no_grad():
+        for data in test_loader:
+
+            for i, d in enumerate(data): data[i] = d.to(device)
+            x, y = data[0], data[1]
+            if torch.is_floating_point(x):
+                x = x.double() if use_64bit \
+                    else x.float()
+            y = y.to(device).long()
+
+            out = model(x)
+            for v in metric_fns.values(): v.update(out, y)
+
+        for k, v in metric_fns.items(): metrics[k] = v.average()
+    return metrics
 
 # ------------------------------------------------------------------------------
 def run_fl_algorithm(
@@ -170,29 +174,54 @@ def run_fl_algorithm(
     )
 
     comm_load = []
-    loss = []
-    acc = []
-    
+    metric_lists = {k: [] for k in cfg.metric_names}
+    metric_fns = {
+        k: met_utils.METRIC_FUNCTION_DICT[k]
+        for k in cfg.metric_names if k != 'loss'
+    }
+    if 'loss' in cfg.metric_names:
+        metric_fns['loss'] = met_utils.LossMetric(server.criterion)
+
     # main loop
     for t in range(cfg.rounds):
         for i in range(cfg.num_clients):
+            clients[i].model.train()
             for j in range(clients[i].epochs):
-                for k, (x, y) in enumerate(clients[i].train_loader):
+                for k, data in enumerate(clients[i].train_loader):
 
-                    x = x.to(torch_device).double() \
-                        if cfg.use_64bit else x.to(torch_device).float()
-                    y = y.to(torch_device).long()
-                    alg.client_step((t, i, j, k), x, y)
+                    for i, d in enumerate(data): data[i] = d.to(torch_device)
+                    x, y = data[0], data[1]
+                    if torch.is_floating_point(x):
+                        x = x.double() if cfg.use_64bit \
+                            else x.float()
+                    y = y.long()
+
+                    if len(data) > 2:
+                        args = list(data)[2:]
+                    alg.client_step((t, i, j, k), x, y, *args)
 
         alg.aggregate()
         comm_load.append(alg.comm_load)
 
-        acc_, loss_ = alg.evaluate()
-        acc.append(acc_)
-        loss.append(loss_)
+        for i in range(cfg.num_clients): clients[i].model.eval()
 
-        logging.info(f' > Round {t}, testing loss: {loss_:.2f}, testing acc: {100. * acc_:.2f}%')
+        metrics = evaluate(
+            alg.full_model(), test_loader, metric_fns=metric_fns,
+            use_64bit=cfg.use_64bit, device=torch_device
+        )
 
-    return FLResults(alg.server, alg.clients, loss, acc, comm_load)
+        for k in metric_lists.keys():
+            metric_lists[k].append(metrics[k])
+
+        print_str = f' > Round {t}, Test '
+        for i, (k, v) in enumerate(metrics.items()):
+            if i == len(metrics.keys()) - 1:
+                print_str += f'{k}: {v:.2f}\n'
+            else:
+                print_str += f'{k}: {v:.2f}, '
+
+        logging.info(print_str)
+
+    return FLResults(alg.server, alg.clients, comm_load, metric_lists)
 
 # ------------------------------------------------------------------------------

@@ -143,7 +143,7 @@ class NNGradScalarAuxiliaryModel(GradScalarAuxiliaryModel):
 
     def forward_inner(self, x):
         x = F.relu(self.fc1(x))
-        x = F.log_softmax(self.olayer(x), dim=1)
+        x = self.olayer(x)
         return x
 
 # ------------------------------------------------------------------------------
@@ -174,7 +174,7 @@ class LinearGradScalarAuxiliaryModel(GradScalarAuxiliaryModel):
             #    nn.init.zeros_(module.bias)
 
     def forward_inner(self, x):
-        x = F.log_softmax(self.fc(x), dim=1)
+        x = self.fc(x)
         return x
     
     #def forward(self, x, label):

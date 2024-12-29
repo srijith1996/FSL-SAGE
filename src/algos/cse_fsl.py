@@ -17,7 +17,7 @@ class CSEFSL(FLAlgorithm):
     def full_model(self, x):
         return self.server.model(self.aggregated_client(x))
 
-    def client_step(self, rd_cl_ep_it, x, y):
+    def client_step(self, rd_cl_ep_it, x, y, *args):
 
         t, i, j, k = rd_cl_ep_it       # (round, client, epoch, iter)
 
@@ -31,7 +31,7 @@ class CSEFSL(FLAlgorithm):
 
         # client backpropagation and update client-side model weights
         out = self.clients[i].auxiliary_model.forward_inner(local_smashed_data) 
-        loss = self.criterion(out, y)
+        loss = self.criterion(out, y, *args)
         loss.backward()
         self.clients[i].auxiliary_model.optimizer.step()
         splitting_output.backward(local_smashed_data.grad)

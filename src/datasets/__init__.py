@@ -2,10 +2,10 @@
 from torch.utils.data import Dataset
 from torchvision import datasets, transforms
 
-from datasets import sample, femnist
+from datasets import sample, femnist, nlg_ft
 
 # -----------------------------------------------------------------------------
-def get_dataset(cfg):
+def get_dataset(cfg, batch_size=None):
     '''
         Download the dataset (if needed) and depart it for clients.
 
@@ -45,6 +45,18 @@ def get_dataset(cfg):
         testSet  = femnist.FEMNIST(dataDir, train=False, download=True)
         #print(trainSet.imgs.shape)
         #print(testSet.imgs.shape)
+
+    elif cfg.name == "nlg_ft":
+        dataDir = '../datas/text_completion'
+
+        trainSet = nlg_ft.FT_Dataset(
+            f'{dataDir}/data/e2e/train.jsonl', batch_size, cfg.seq_len,
+            joint_lm=(cfg.obj == 'jlm')
+        )
+        testSet  = nlg_ft.FT_Dataset(
+            f'{dataDir}/data/e2e/test.jsonl', batch_size, cfg.seq_len,
+            joint_lm=(cfg.obj == 'jlm')
+        )
 
     else:
         exit(f"[ERROR] Unrecognized dataset '{cfg.name}'.")
@@ -100,7 +112,6 @@ class DatasetSplit(Dataset):
         return len(self.idx)
 
     def __getitem__(self, item):
-        inputs, labels = self.dataset[self.idx[item]]
-        return inputs, labels
+        return self.dataset[self.idx[item]]
 
 # -----------------------------------------------------------------------------

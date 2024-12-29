@@ -24,11 +24,11 @@ class FedAvg(FLAlgorithm):
     def full_model(self, x):
         return self.aggregated_client(x)
 
-    def client_step(self, rd_cl_ep_it, x, y):
+    def client_step(self, rd_cl_ep_it, x, y, *args):
         t, i, j, k = rd_cl_ep_it
         self.clients[i].optimizer.zero_grad()
         out = self.clients[i].model(x)
-        loss = self.criterion(out, y)
+        loss = self.criterion(out, y, *args)
         loss.backward()
         self.clients[i].optimizer.step()
     
@@ -39,7 +39,7 @@ class SplitFedv2(FLAlgorithm):
     def full_model(self, x):
         return self.server.model(self.aggregated_client(x))
 
-    def client_step(self, rd_cl_ep_it, x, y):
+    def client_step(self, rd_cl_ep_it, x, y, *args):
         t, i, j, k = rd_cl_ep_it
         self.clients[i].optimizer.zero_grad()
         self.server.optimizer.zero_grad()
@@ -54,7 +54,7 @@ class SplitFedv2(FLAlgorithm):
         self.comm_load += smashed_data.numel() * smashed_data.element_size() 
 
         output = self.server.model(smashed_data) 
-        loss = self.server.criterion(output, y)
+        loss = self.server.criterion(output, y, *args)
         loss.backward()
 
         # Comm cost for downloading grads of smashed data
@@ -82,7 +82,7 @@ class SplitFedv1(FLAlgorithm):
     def full_model(self, x):
         return self.aggregated_server(self.aggregated_client(x))
 
-    def client_step(self, rd_cl_ep_it, x, y):
+    def client_step(self, rd_cl_ep_it, x, y, *args):
         t, i, j, k = rd_cl_ep_it
 
         self.clients[i].optimizer.zero_grad()
@@ -98,7 +98,7 @@ class SplitFedv1(FLAlgorithm):
         self.comm_load += smashed_data.numel() * smashed_data.element_size() 
 
         output = self.servers[i].model(smashed_data) 
-        loss = self.criterion(output, y)
+        loss = self.criterion(output, y, *args)
         loss.backward()
 
         # Download gradients of the smashed data

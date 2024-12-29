@@ -5,10 +5,13 @@ from torchvision.datasets import MNIST, utils
 from PIL import Image
 import os
 import torch
+from torchvision.transforms.functional import pil_to_tensor
 import shutil
 
 class FEMNIST(MNIST):
-    def __init__(self, root, train=True, transform=None, target_transform=None, download=False):
+    def __init__(self,
+        root, train=True, transform=None, target_transform=None, download=False
+    ):
         super(MNIST, self).__init__(root, transform=transform, target_transform=target_transform)
         self.download = download
         self.download_link = 'https://media.githubusercontent.com/media/GwenLegate/femnist-dataset-PyTorch/main/femnist.tar.gz'
@@ -31,18 +34,18 @@ class FEMNIST(MNIST):
         else:
             data_file = self.test_file
 
-        data_targets_users = torch.load(data_file, weights_only=True)
+        data_targets_users = torch.load(data_file, weights_only=False)
         self.data, self.targets, self.users = torch.Tensor(data_targets_users[0]), torch.Tensor(data_targets_users[1]), data_targets_users[2]
-        self.user_ids = torch.load(self.user_list, weights_only=True)
+        self.user_ids = torch.load(self.user_list, weights_only=False)
 
     def __getitem__(self, index):
-        img, target, user = self.data[index], int(self.targets[index]), self.users[index]
-        img = Image.fromarray(img.numpy(), mode='F')
+        img, target = self.data[index], int(self.targets[index])
+        img = img.view((1, 28, 28))
         if self.transform is not None:
             img = self.transform(img)
         if self.target_transform is not None:
             target = self.target_transform(target)
-        return img, target #, user
+        return img, target#, user
 
     def dataset_download(self):
         paths = [f'{self.root}/FEMNIST/raw/', f'{self.root}/FEMNIST/processed/']
