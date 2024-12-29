@@ -76,9 +76,9 @@ def get_dataloaders(cfg) -> Tuple[List[DataLoader], DataLoader]:
 # -----------------------------------------------------------------------------
 def __safe_copy_dict_key(d, key):
     if key in d:
-        return d[key]
+        return d[key] if d[key] is not None else {}
     else:
-        return dict()
+        return {}
 
 # -----------------------------------------------------------------------------
 def check_and_mark_lora_trainable(cfg, server, clients):

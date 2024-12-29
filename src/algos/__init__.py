@@ -156,6 +156,19 @@ class FLResults():
     metric_lists : Dict[str, List]
 
 # ------------------------------------------------------------------------------
+def prepare_batch(data, torch_device, use_64bit=False):
+    for i, d in enumerate(data):
+        data[i] = d.to(torch_device)
+
+    x, y = data[0], data[1]
+    if torch.is_floating_point(x):
+        x = x.double() if use_64bit else x.float()
+    y = y.long()
+    args = list(data)[2:] if len(data) > 2 else []
+
+    return x, y, args
+
+# ------------------------------------------------------------------------------
 def evaluate(
     model, test_loader, metric_fns=met_utils.METRIC_FUNCTION_DICT,
     use_64bit=False, device='cpu'
@@ -165,13 +178,7 @@ def evaluate(
         for data in tqdm(
             test_loader, desc="Test Batch", unit='batch', leave=False
         ):
-            for i, d in enumerate(data): data[i] = d.to(device)
-            x, y = data[0], data[1]
-            if torch.is_floating_point(x):
-                x = x.double() if use_64bit \
-                    else x.float()
-            y = y.to(device).long()
-
+            x, y, args = prepare_batch(data, device, use_64bit)
             out = model(x)
             for v in metric_fns.values(): v.update(out, y)
 
@@ -302,15 +309,9 @@ def run_fl_algorithm(
                             desc="Local batch", leave=False
                         ) as pbar_local:
                             for k, data in enumerate(pbar_local):
-                                data = [d.to(torch_device) for d in data]
-                                x, y = data[0], data[1]
-                                if torch.is_floating_point(x):
-                                    x = x.double() if cfg.use_64bit \
-                                        else x.float()
-                                y = y.long()
-
-                                if len(data) > 2:
-                                    args = list(data)[2:]
+                                x, y, args = prepare_batch(
+                                    data, torch_device, cfg.use_64bit
+                                )
 
                                 # take client step
                                 tr_metrics = alg.client_step((t, i, j, k), x, y, *args)
@@ -344,17 +345,19 @@ def run_fl_algorithm(
                     log_dict.update(log_dict_)
                     pbar.set_postfix(**tr_mets, **lr_dict)
 
-            tr_str = __print_aggregate_metrics(train_metrics)
-
+            # set models to eval mode and evaluate
             alg.aggregate()
             comm_load.append(alg.comm_load)
+
+            tr_str = __print_aggregate_metrics(train_metrics)
 
             # set models to eval mode and evaluate
             alg.eval_mode()
             metrics = evaluate(
-                alg.full_model(), test_loader, metric_fns=metric_fns,
+                alg.full_model, test_loader, metric_fns=metric_fns,
                 use_64bit=cfg.use_64bit, device=torch_device
             )
+
             for k in metric_lists.keys():
                 metric_lists[k].append(metrics[k])
 
