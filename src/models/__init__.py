@@ -3,9 +3,11 @@ from dataclasses import dataclass
 import os, importlib
 import torch
 import torch.nn as nn
-from typing import Callable, Dict, Tuple, Type, Union
+from typing import Callable, Dict, Tuple, Any, Union
 
 from models import aux_models
+from omegaconf import open_dict
+from utils import opt_utils
 
 # -----------------------------------------------------------------------------
 # name: str ->
@@ -17,7 +19,9 @@ CLIENT_SERVER_MODEL_REGISTRY: Dict[
 ] = dict()
 
 # -----------------------------------------------------------------------------
-def register_client_server_pair(name, client, server=None):
+def register_client_server_pair(
+    name, client, server=None, client_to_server_params_fn=None
+):
     if name in CLIENT_SERVER_MODEL_REGISTRY:
         raise ValueError(
             'Cannot register duplicate client-server pair {}'.format(name)
@@ -30,7 +34,9 @@ def register_client_server_pair(name, client, server=None):
         raise ValueError(
             'Server model must be a callable or nn.Module constructor'
         )
-    CLIENT_SERVER_MODEL_REGISTRY[name] = (client, server)
+    CLIENT_SERVER_MODEL_REGISTRY[name] = (
+        client, server, client_to_server_params_fn
+    )
 
 # -----------------------------------------------------------------------------
 @dataclass
@@ -38,6 +44,7 @@ class ModelPackage():
     client: Callable
     server: Callable
     auxiliary: Callable
+    client_to_server_params: Callable
 
 # -----------------------------------------------------------------------------
 def model_package(model_name: str, aux_model_name: str) -> ModelPackage:
@@ -49,7 +56,8 @@ def model_package(model_name: str, aux_model_name: str) -> ModelPackage:
     model_pack = ModelPackage(
         CLIENT_SERVER_MODEL_REGISTRY[model_name][0],
         CLIENT_SERVER_MODEL_REGISTRY[model_name][1],
-        aux_models.AUXILIARY_MODEL_REGISTRY[aux_model_name]
+        aux_models.AUXILIARY_MODEL_REGISTRY[aux_model_name],
+        CLIENT_SERVER_MODEL_REGISTRY[model_name][2],
     )
     return model_pack
 
@@ -78,12 +86,19 @@ def config_lr_scheduler(optimizer, cfg):
 
 # ------------------------------------------------------------------------------
 class Client():
+    id      : int
+    model   : Union[nn.Module, Callable]
+    optimizer: Any
+    dataset_size: int
+    train_loader: torch.utils.data.DataLoader
+    epochs  : int
+    auxiliary_model : aux_models.AuxiliaryModel
+
     def __init__(self,
         id, train_loader, client, cfg_model, device='cpu'
     ):
         self.id = id
         self.model = client 
-        self.criterion = nn.NLLLoss().to(device)
 
         self.optimizer = config_optimizer(
             self.model.parameters(), cfg_model.optimizer
@@ -114,11 +129,39 @@ class Client():
         )
 
 # -----------------------------------------------------------------------------
+# source: https://stackoverflow.com/questions/55681502/label-smoothing-in-pytorch
+class MaskingCrossEntropyLoss(nn.Module):
+    def __init__(self, smoothing=0.0, weight=None):
+        """if smoothing == 0, it's one-hot method
+           if 0 < smoothing < 1, it's smooth method
+        """
+        super(MaskingCrossEntropyLoss, self).__init__()
+        self.cel = nn.CrossEntropyLoss(
+            weight=weight, label_smoothing=smoothing, reduction='none',
+            ignore_index=-1
+        )
+
+    def forward(self, pred, target, mask=None):
+
+        loss = self.cel(pred, target)
+        if mask is None:
+            mask = torch.ones(
+                loss.shape, dtype=loss.dtype, device=loss.device
+            )
+
+        loss = loss * mask 
+        return loss.sum() / (mask.sum() + 0.0001)
+
+# -----------------------------------------------------------------------------
 class Server():
+    model: nn.Module
+    criterion : Callable
+    optimizer : Any
+    alignment_loss: Callable
+
     def __init__(self,server, cfg, device='cpu'):
         self.model = server
-        self.criterion = nn.NLLLoss().to(device)
-        self.alignLoss = nn.MSELoss().to(device)
+        self.alignment_loss = nn.MSELoss().to(device)
 
         self.optimizer = config_optimizer(
             self.model.parameters(), cfg.optimizer
@@ -128,6 +171,10 @@ class Server():
         self.lr_scheduler = config_lr_scheduler(
             self.optimizer, cfg.lr_scheduler
         ) if "lr_scheduler" in cfg and cfg.lr_scheduler else None
+
+        if 'label_smooth' not in cfg:
+            with open_dict(cfg): cfg['label_smooth'] = 0.0
+        self.criterion = MaskingCrossEntropyLoss(smoothing=cfg.label_smooth)
 
 # -----------------------------------------------------------------------------
 # Automatically import any Python files in the models/ directory

@@ -14,6 +14,7 @@ from omegaconf import DictConfig, open_dict
 from torch.utils.data import DataLoader
 from models import Server, Client
 from utils.utils import calculate_load, Checkpointer
+from utils import metrics as met_utils
 
 # ------------------------------------------------------------------------------
 def aggregate_models(model_list, weights, device='cpu'):
@@ -81,7 +82,7 @@ class FLAlgorithm(ABC):
         pass
     
     @abstractmethod
-    def client_step(self, x, y):
+    def client_step(self, x, y, *args):
         pass
 
     def special_models_train_mode(self, t):
@@ -118,27 +119,6 @@ class FLAlgorithm(ABC):
     def aggregate(self):
         return self.aggregate_clients()
 
-    def evaluate(self):
-        test_correct = 0
-        test_loss = []
-        self.eval_mode()
-        with torch.no_grad():
-            for x, y in tqdm(
-                self.test_loader, desc="Test Batch", unit='batch', leave=False
-            ):
-                x = x.to(self.device).double() if self.use_64bit \
-                    else x.to(self.device).float()
-                y = y.to(self.device).long()
-                out = self.full_model(x)
-                batch_loss = self.criterion(out, y)
-                test_loss.append(batch_loss.item())
-                _, predicted = torch.max(out.data, 1)
-                test_correct += predicted.eq(y.view_as(predicted)).sum().item()
-            loss = sum(test_loss) / len(test_loss)
-            acc =  test_correct / len(self.test_loader.dataset)
-
-        return acc, loss
-
 # ------------------------------------------------------------------------------
 # maps alg_name: str -> instance of FLAlgorithm
 ALGORITHM_REGISTRY: Dict[str, FLAlgorithm] = dict()
@@ -171,10 +151,32 @@ for file in os.listdir(os.path.dirname(__file__)):
 class FLResults():
     server      : Server   
     client_list : List[Client]
-    loss        : List[float]
-    accuracy    : List[float]
     train_metrics : Dict[str, List]
     comm_load   : List[float]
+    metric_lists : Dict[str, List]
+
+# ------------------------------------------------------------------------------
+def evaluate(
+    model, test_loader, metric_fns=met_utils.METRIC_FUNCTION_DICT,
+    use_64bit=False, device='cpu'
+):
+    metrics = {}
+    with torch.no_grad():
+        for data in tqdm(
+            test_loader, desc="Test Batch", unit='batch', leave=False
+        ):
+            for i, d in enumerate(data): data[i] = d.to(device)
+            x, y = data[0], data[1]
+            if torch.is_floating_point(x):
+                x = x.double() if use_64bit \
+                    else x.float()
+            y = y.to(device).long()
+
+            out = model(x)
+            for v in metric_fns.values(): v.update(out, y)
+
+        for k, v in metric_fns.items(): metrics[k] = v.average()
+    return metrics
 
 # ------------------------------------------------------------------------------
 def __print_aggregate_metrics(client_metrics_dict, prefix='tr.'):
@@ -265,8 +267,14 @@ def run_fl_algorithm(
             cfg.comm_threshold_mb = np.inf
 
     comm_load = []
-    test_loss = []
-    test_acc = []
+    metric_lists = {k: [] for k in cfg.metric_names}
+    metric_fns = {
+        k: met_utils.METRIC_FUNCTION_DICT[k]
+        for k in cfg.metric_names if k != 'loss'
+    }
+    if 'loss' in cfg.metric_names:
+        metric_fns['loss'] = met_utils.LossMetric(server.criterion)
+
     train_metrics = [{} for _ in range(cfg.num_clients)]
     
     # main loop
@@ -275,8 +283,8 @@ def run_fl_algorithm(
             range(cfg.rounds), unit="rd", desc="Round", leave=False,
             colour='green'
         ):
-
             log_dict = {}
+
             # set all models to train mode and train
             alg.train_mode(t)
             with tqdm(
@@ -293,14 +301,20 @@ def run_fl_algorithm(
                             clients[i].train_loader, unit="batch",
                             desc="Local batch", leave=False
                         ) as pbar_local:
-                            for k, (x, y) in enumerate(pbar_local):
-                                x = x.to(torch_device).double() \
-                                    if cfg.use_64bit else x.to(torch_device).float()
-                                y = y.to(torch_device).long()
+                            for k, data in enumerate(pbar_local):
+                                data = [d.to(torch_device) for d in data]
+                                x, y = data[0], data[1]
+                                if torch.is_floating_point(x):
+                                    x = x.double() if cfg.use_64bit \
+                                        else x.float()
+                                y = y.long()
 
-                                tr_metrics = alg.client_step(
-                                    (t, i, j, k), x, y
-                                )
+                                if len(data) > 2:
+                                    args = list(data)[2:]
+
+                                # take client step
+                                tr_metrics = alg.client_step((t, i, j, k), x, y, *args)
+
                                 pbar_local.set_postfix(**tr_metrics)
                                 if j == 0 and k == 0:
                                     tr_mets = {
@@ -337,14 +351,16 @@ def run_fl_algorithm(
 
             # set models to eval mode and evaluate
             alg.eval_mode()
-            acc_, loss_ = alg.evaluate()
-            test_acc.append(acc_)
-            test_loss.append(loss_)
-            log_dict.update({
-                'Test/accuracy': acc_,
-                'Test/loss': loss_,
-                'Test/load': comm_load
-            })
+            metrics = evaluate(
+                alg.full_model(), test_loader, metric_fns=metric_fns,
+                use_64bit=cfg.use_64bit, device=torch_device
+            )
+            for k in metric_lists.keys():
+                metric_lists[k].append(metrics[k])
+
+            log_dict.update(
+                {f'Test/{k}': v for k, v in metric_lists[k].items()}
+            )
 
             # adjust learning rates for server models in single server runs
             # i.e., sl_single_server, cse_fsl and fsl_sage
@@ -353,27 +369,32 @@ def run_fl_algorithm(
             )
             log_dict.update(log_dict_)
 
-            logging.info(
-                f' > Round {t}, ' + tr_str +
-                f', ts. loss: {loss_:.2f}, ts. acc: {100. * acc_:.2f}%' +
-                f', comm: {(alg.comm_load / (1024**3)):.2f} GiB.'
-            )
+            # log to wandb, console and log file
+            print_str = f' > Round {t}, Test '
+            for i, (k, v) in enumerate(metrics.items()):
+                if i == len(metrics.keys()) - 1:
+                    print_str += f'{k}: {v:.2f}'
+                else:
+                    print_str += f'{k}: {v:.2f}, '
+            logging.info(print_str)
             logger_fn(log_dict, step=t)
 
             # save checkpoints
             if cfg.save and t % cfg.checkpoint_interval == 0:
                 checkpointer.save(
-                    t, alg.server, alg.clients, {'accuracy': acc_}
+                    t, alg.server, alg.clients,
+                    {'accuracy': metrics['accuracy']}
                 )
 
             # stop if communication load exceeds threshold
             if alg.comm_load / (1024**2) >= cfg.comm_threshold_mb:
-                logging.info(f"Communication budget reached/exceeded @ {t:d} rounds!")
+                logging.info(
+                    f"Communication budget reached/exceeded @ {t:d} rounds!"
+                )
                 break
 
     return FLResults(
-        alg.server, alg.clients, test_loss, test_acc,
-        train_metrics, comm_load
+        alg.server, alg.clients, train_metrics, comm_load, metric_lists
     )
 
 # ------------------------------------------------------------------------------

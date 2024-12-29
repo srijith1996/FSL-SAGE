@@ -15,6 +15,7 @@ from functools import partial
 from typing import List, Tuple, Callable
 import torch
 from torch.utils.data import DataLoader
+import loralib
 
 from models import model_package, Client, Server
 import datasets as dss
@@ -32,7 +33,9 @@ torch.backends.cudnn.benchmark = False
 # -----------------------------------------------------------------------------
 def get_dataloaders(cfg) -> Tuple[List[DataLoader], DataLoader]:
 
-    trainSet, testSet = dss.get_dataset(cfg.dataset) 
+    trainSet, testSet = dss.get_dataset(
+        cfg.dataset, batch_size=cfg.model.client.batch_size
+    )
     client_train_set, _ = dss.depart_dataset(
         cfg.num_clients, trainSet, testSet, cfg.dataset
     )
@@ -71,23 +74,44 @@ def get_dataloaders(cfg) -> Tuple[List[DataLoader], DataLoader]:
     return trainloaders, testloader
     
 # -----------------------------------------------------------------------------
+def __safe_copy_dict_key(d, key):
+    if key in d:
+        return d[key]
+    else:
+        return dict()
+
+# -----------------------------------------------------------------------------
+def check_and_mark_lora_trainable(cfg, server, clients):
+    options = __safe_copy_dict_key(cfg.model, 'options')
+    if (not "lora_attn_dim" in options) or options['lora_attn_dim'] <= 0:
+        return
+
+    loralib.mark_only_lora_as_trainable(server.model)
+    for c in clients:
+        loralib.mark_only_lora_as_trainable(c.model)
+        
+# -----------------------------------------------------------------------------
 def model_constructors(cfg) -> Callable:
 
     model_pack = model_package(cfg.model.name, cfg.model.auxiliary.name)
 
-    __safe_copy_dict = lambda x : {} if x is None else x
-    coptions = __safe_copy_dict(cfg.model.client.options)
-    soptions = __safe_copy_dict(cfg.model.server.options)
-    aoptions = __safe_copy_dict(cfg.model.auxiliary.options)
+    coptions = __safe_copy_dict_key(cfg.model.client, 'options')
+    soptions = __safe_copy_dict_key(cfg.model.server, 'options')
+    common_options = __safe_copy_dict_key(cfg.model, 'options')
+    aoptions = __safe_copy_dict_key(cfg.model.auxiliary, 'options')
 
-    client_constructor = partial(model_pack.client, **coptions)
-    server_constructor = partial(model_pack.server, **soptions) \
-        if model_pack.server is not None else (lambda: None)
+    client_constructor = partial(
+        model_pack.client, **coptions, **common_options
+    )
+    server_constructor = partial(
+        model_pack.server, **soptions, **common_options
+    ) if model_pack.server is not None else (lambda: None)
     auxiliary_constructor = partial(
         model_pack.auxiliary, **aoptions
     ) if model_pack.auxiliary is not None else (lambda: None)
 
-    return client_constructor, server_constructor, auxiliary_constructor
+    return client_constructor, server_constructor, auxiliary_constructor, \
+        model_pack.client_to_server_params
 
 # -----------------------------------------------------------------------------
 def setup_server_and_clients(
@@ -96,14 +120,10 @@ def setup_server_and_clients(
 
     client_loaders, test_loader = get_dataloaders(cfg)
 
-    client_constructor, server_constructor, auxiliary_constructor = \
-        model_constructors(cfg)
+    client_constructor, server_constructor, auxiliary_constructor, \
+        client_to_server_params = model_constructors(cfg)
         
-    server = Server(
-        server_constructor(), cfg.model.server, device=global_torch_device
-    )
-    server.model.to(global_torch_device)
-
+    # init client objects
     client_list = [
         Client(i, client_loaders[i],
             client_constructor(),
@@ -112,12 +132,45 @@ def setup_server_and_clients(
         for i in range(cfg.num_clients)
     ]
 
+    client_server_params = client_to_server_params(client_list[0].model) \
+        if client_to_server_params is not None else dict()
+
+    # init server object 
+    server = Server(
+        server_constructor(**client_server_params), cfg.model.server,
+        device=global_torch_device
+    )
+    server.model.to(global_torch_device)
+
     # initialize auxiliary models
     for c in client_list:
         c.init_auxiliary(
-            auxiliary_constructor(server=server, device=global_torch_device),
+            auxiliary_constructor(
+                server=server, device=global_torch_device,
+                **client_server_params
+            ),
             cfg.model.auxiliary
         )
+
+    # load pretrained_weights
+    def __safe_load_weights(model, *args, **kwargs):
+        if not 'pretrained_weights_file' in cfg.model:
+            return
+
+        saved_state_dict = torch.load(
+            cfg.model.pretrained_weights_file, weights_only=True
+        )
+
+        if hasattr(model, 'load_weight') and callable(model.load_weight):
+            model.load_weight(saved_state_dict, *args, **kwargs)
+        else:
+            model.load_state_dict(saved_state_dict, strict=False)
+
+    __safe_load_weights(client_list[0].model)
+    client_server_params = client_to_server_params(client_list[0].model) \
+        if client_to_server_params is not None else dict()
+
+    __safe_load_weights(server.model, **client_server_params)
 
     for c in client_list:
         c.model.load_state_dict(client_list[0].model.state_dict())
@@ -145,6 +198,7 @@ def setup_server_and_clients(
         f"Auxiliary = {param_counts[2]}."
     )
         
+    check_and_mark_lora_trainable(cfg, server, client_list)
     return server, client_list, test_loader
 
 # -----------------------------------------------------------------------------
@@ -212,12 +266,9 @@ def main(cfg: DictConfig):
     for met in results.train_metrics:
         train_metrics.update(met)
 
-    save_res = {
-        'test_loss' : results.loss,
-        'test_acc'  : results.accuracy,
-        'comm_load' : results.comm_load,
-        **train_metrics
-    }
+    save_res = results.metric_lists
+    save_res['comm_load'] = results.comm_load
+    save_res.update(train_metrics)
 
     # save models and results
     if cfg.save:
@@ -228,7 +279,7 @@ def main(cfg: DictConfig):
         
         metrics_file = os.path.join(cfg.save_path, 'metrics.pt')
         torch.save(
-            [results.accuracy, results.loss, results.comm_load],
+            [*list(results.metric_lists.values()), results.comm_load],
             metrics_file
         )
 

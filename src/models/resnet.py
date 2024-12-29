@@ -248,7 +248,7 @@ class ResNet(nn.Module):
 
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
-        x = F.log_softmax(self.fc(x), dim=1)
+        x = self.fc(x)
 
         return x
 
@@ -558,7 +558,7 @@ class ResNetServer(nn.Module):
 
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
-        x = F.log_softmax(self.fc(x), dim=1)
+        x = self.fc(x)
         return x
 
     def forward(self, x: Tensor) -> Tensor:
