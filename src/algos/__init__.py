@@ -136,6 +136,19 @@ class FLResults():
     metric_lists : Dict[str, List]
 
 # ------------------------------------------------------------------------------
+def prepare_batch(data, torch_device, use_64bit=False):
+    for i, d in enumerate(data):
+        data[i] = d.to(torch_device)
+
+    x, y = data[0], data[1]
+    if torch.is_floating_point(x):
+        x = x.double() if use_64bit else x.float()
+    y = y.long()
+    args = list(data)[2:] if len(data) > 2 else []
+
+    return x, y, args
+
+# ------------------------------------------------------------------------------
 def evaluate(
     model, test_loader, metric_fns=met_utils.METRIC_FUNCTION_DICT,
     use_64bit=False, device='cpu'
@@ -143,14 +156,7 @@ def evaluate(
     metrics = {}
     with torch.no_grad():
         for data in test_loader:
-
-            for i, d in enumerate(data): data[i] = d.to(device)
-            x, y = data[0], data[1]
-            if torch.is_floating_point(x):
-                x = x.double() if use_64bit \
-                    else x.float()
-            y = y.to(device).long()
-
+            x, y, args = prepare_batch(data, device, use_64bit)
             out = model(x)
             for v in metric_fns.values(): v.update(out, y)
 
@@ -184,29 +190,26 @@ def run_fl_algorithm(
 
     # main loop
     for t in range(cfg.rounds):
+        # first set models to train mode; then take client steps
+        server.model.train()
         for i in range(cfg.num_clients):
             clients[i].model.train()
             for j in range(clients[i].epochs):
                 for k, data in enumerate(clients[i].train_loader):
-
-                    for i, d in enumerate(data): data[i] = d.to(torch_device)
-                    x, y = data[0], data[1]
-                    if torch.is_floating_point(x):
-                        x = x.double() if cfg.use_64bit \
-                            else x.float()
-                    y = y.long()
-
-                    if len(data) > 2:
-                        args = list(data)[2:]
+                    x, y, args = prepare_batch(
+                        data, torch_device, cfg.use_64bit
+                    )
                     alg.client_step((t, i, j, k), x, y, *args)
 
         alg.aggregate()
         comm_load.append(alg.comm_load)
 
+        # set models to eval mode and evaluate
+        server.model.eval()
         for i in range(cfg.num_clients): clients[i].model.eval()
 
         metrics = evaluate(
-            alg.full_model(), test_loader, metric_fns=metric_fns,
+            alg.full_model, test_loader, metric_fns=metric_fns,
             use_64bit=cfg.use_64bit, device=torch_device
         )
 
@@ -216,9 +219,9 @@ def run_fl_algorithm(
         print_str = f' > Round {t}, Test '
         for i, (k, v) in enumerate(metrics.items()):
             if i == len(metrics.keys()) - 1:
-                print_str += f'{k}: {v:.2f}\n'
+                print_str += f'{k}: {v:.4f}.'
             else:
-                print_str += f'{k}: {v:.2f}, '
+                print_str += f'{k}: {v:.4f}, '
 
         logging.info(print_str)
 

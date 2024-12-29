@@ -73,9 +73,9 @@ def get_dataloaders(cfg) -> Tuple[List[DataLoader], DataLoader]:
 # -----------------------------------------------------------------------------
 def __safe_copy_dict_key(d, key):
     if key in d:
-        return d[key]
+        return d[key] if d[key] is not None else {}
     else:
-        return dict()
+        return {}
 
 # -----------------------------------------------------------------------------
 def check_and_mark_lora_trainable(cfg, server, clients):
@@ -224,11 +224,11 @@ def main(cfg: DictConfig):
             json.dump(save_res, outf)
             logging.info(f"[NOTICE] Saved results to '{file_name}'.")
         
-        metrics_file = os.path.join(cfg.save_path, 'metrics.pt')
-        torch.save(
-            [results.accuracy, results.loss, results.comm_load],
-            metrics_file
-        )
+        #metrics_file = os.path.join(cfg.save_path, 'metrics.pt')
+        #torch.save(
+        #    [save_res['accuracy'], save_res['loss'], save_res['comm_load']],
+        #    metrics_file
+        #)
 
         # save trained models
         model_save_path = os.path.join(cfg.save_path, 'models')

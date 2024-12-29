@@ -39,10 +39,12 @@ class AuxiliaryModel(ABC, nn.Module):
         self.max_data_size = max_dataset_size
         self.data_x = torch.tensor([], device=device)   # dataset cut-layer activations
         self.data_labels = torch.tensor([], device=device) # labels corresponding to the data_x
+        self.data_other = []                            # other inputs passed along with smashed data
         self.data_y = torch.tensor([], device=device)   # dataset cut-layer true gradients
         self.data_loader = None
         self.align_batch_size = align_batch_size
         self.server = server
+        self.device = device
 
     @abstractmethod
     def align(self):
@@ -68,7 +70,11 @@ class AuxiliaryModel(ABC, nn.Module):
             logging.debug(f"Size of alignment dataset: {self.data_x.shape[0]}")
             self.server.optimizer.zero_grad()
             all_ins = self.data_x.clone().detach().requires_grad_(True)
-            all_out = self.server.model(all_ins)
+            all_others = [
+                other_in.clone().detach() for other_in in self.data_other
+            ]
+            all_out = self.server.model(all_ins, *all_others)
+            all_out = all_out[0] if isinstance(all_out, tuple) else all_out
             all_loss = self.server.criterion(all_out, self.data_labels)
             all_loss.backward()
             self.data_y = all_ins.grad.clone().detach()
@@ -78,8 +84,9 @@ class AuxiliaryModel(ABC, nn.Module):
             raise Exception("Only all=True supported currently")
 
         self.data_loader = DataLoader(
-            TensorDataset(self.data_x, self.data_y, self.data_labels),
-            shuffle=True, batch_size=self.align_batch_size, pin_memory=False
+            TensorDataset(
+                self.data_x, self.data_y, self.data_labels, *self.data_other
+            ), shuffle=True, batch_size=self.align_batch_size, pin_memory=False
         )
 
     def get_align_dataset(self):
@@ -94,20 +101,29 @@ class AuxiliaryModel(ABC, nn.Module):
         # TODO: may need more generalized version for multi-dimensional x
         return torch.cat((x, label[:, None]), axis=1)
 
-    def add_datapoint(self, x, label):
-        '''Add the given datapoint to the dataset.
+    def add_datapoint(self, x, label, *other_inputs):
+        '''Add the given smashed data batch to the alignment dataset.
         
         Params
         ------
             x     - cut-layer activation of shape (N, x_shape),
             label - labels corresponding to x.
-
+            *other_inputs - other inputs usually passed with smashed data to the
+                server and auxiliary models.
         '''
         self.data_x = torch.cat((self.data_x, x), dim=0)
         self.data_labels = torch.cat((self.data_labels, label), dim=0).long()
+
+        for i, inp in enumerate(other_inputs):
+            if len(self.data_other) < (i + 1):
+                self.data_other.append(torch.tensor([], device=self.device))
+            self.data_other[i] = torch.cat((self.data_other[i], inp), dim=0)
+
         if self.data_x.shape[0] > self.max_data_size:
             self.data_x = self.data_x[-self.max_data_size:]
             self.data_labels = self.data_labels[-self.max_data_size:]
+            for i in range(len(self.data_other)):
+                self.data_other[i] = self.data_other[i][-self.max_data_size:]
 
         assert self.data_x.shape[0] <= self.max_data_size,\
             "Error in <add_datapoint>: Dataset size has exceeded limit"
@@ -145,14 +161,14 @@ class GradScalarAuxiliaryModel(AuxiliaryModel):
         self.align_epochs = align_epochs
 
     @abstractmethod
-    def forward_inner(self, x):
+    def forward_inner(self, x, *other_ins):
         pass
 
     def set_optimizer(self, align_step):
         self.optimizer = optim.Adam(self.parameters(), lr=align_step)
 
-    def align_loss(self, x, y, labels):
-        aux_out = self.forward(x, labels)
+    def align_loss(self, x, y, labels, *other_ins):
+        aux_out = self.forward(x, labels, *other_ins)
         loss = F.mse_loss(aux_out, y, reduction='sum')
         return loss
 
@@ -160,9 +176,11 @@ class GradScalarAuxiliaryModel(AuxiliaryModel):
         bar = trange(self.align_epochs, desc="Alignment", disable=True)
         logging.debug(f"# batches for alignment: {len(self.data_loader)}")
         for i in bar:
-            for x, y, labels in self.data_loader:
+            for data in self.data_loader:
+                x, y, labels = data[0], data[1], data[2]
+                other_ins = data[3:] if len(data) > 3 else []
                 self.optimizer.zero_grad()
-                loss = self.align_loss(x, y, labels)
+                loss = self.align_loss(x, y, labels, *other_ins)
                 loss.backward()
                 self.optimizer.step()
             if i % 10 == 0:
@@ -171,9 +189,9 @@ class GradScalarAuxiliaryModel(AuxiliaryModel):
                 )
             bar.set_postfix(loss=loss.item())
 
-    def forward(self, x, label):
+    def forward(self, x, label, *other_ins):
         x.requires_grad_(True)
-        outs = self.forward_inner(x)
+        outs = self.forward_inner(x, *other_ins)
         out = outs[0] if isinstance(outs, tuple) else outs
         out = self.server.criterion(out, label)
         aux_out = torch.autograd.grad(out, x, create_graph=True)[0]

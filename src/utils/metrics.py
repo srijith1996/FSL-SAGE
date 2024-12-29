@@ -46,6 +46,8 @@ class LossMetric(Metric):
         self.count += labels.size(0)
 
 # ------------------------------------------------------------------------------
+# We don't register loss in this dictionary, since loss requires a special
+# `criterion` argument, which can only be passed by the calling code.
 METRIC_FUNCTION_DICT = {
     'accuracy'  : AccuracyMetric(),
 }
