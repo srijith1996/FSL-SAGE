@@ -6,9 +6,9 @@ from models import register_client_server_pair
 
 # ------------------------------------------------------------------------------
 class Client_model_cifar(nn.Module):
-    def __init__(self):
+    def __init__(self, n_channels=3):
         super(Client_model_cifar, self).__init__()
-        self.conv1 = nn.Conv2d(in_channels=3, out_channels=64,
+        self.conv1 = nn.Conv2d(in_channels=n_channels, out_channels=64,
                                kernel_size=5, padding=2)
         self.pool1 = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         self.norm1 = nn.LocalResponseNorm(size=4, alpha=0.001 / 9.0,

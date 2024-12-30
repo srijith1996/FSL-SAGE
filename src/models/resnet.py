@@ -349,6 +349,7 @@ class ResNetClient(nn.Module):
         self,
         block: Type[Union[BasicBlock, Bottleneck]],
         layers: List[int],
+        in_channels: int = 3,
         zero_init_residual: bool = False,
         groups: int = 1,
         width_per_group: int = 64,
@@ -373,7 +374,7 @@ class ResNetClient(nn.Module):
             )
         self.groups = groups
         self.base_width = width_per_group
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
+        self.conv1 = nn.Conv2d(in_channels, self.inplanes, kernel_size=7, stride=2, padding=3, bias=False)
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -564,12 +565,13 @@ class ResNetServer(nn.Module):
 def _resnet_sl_client(
     block: Type[Union[BasicBlock, Bottleneck]],
     layers: List[int],
+    in_channels: int,
     weights: Optional[Any],
     progress: bool,
     **kwargs: Any,
 ) -> ResNet:
 
-    cmodel = ResNetClient(block, layers, **kwargs)
+    cmodel = ResNetClient(block, layers, in_channels, **kwargs)
     if weights is not None:
         cmodel.load_state_dict(weights[0].get_state_dict(
                 progress=progress, check_hash=True
@@ -594,7 +596,7 @@ def _resnet_sl_server(
 
 # ------------------------------------------------------------------------------
 def resnet18_sl_client(*,
-    weights: Optional[Any] = None, progress: bool = True,
+    n_channels: int=3, weights: Optional[Any] = None, progress: bool = True,
     **kwargs: Any
 ):
     """ResNet-18 from `Deep Residual Learning for Image Recognition
@@ -617,7 +619,7 @@ def resnet18_sl_client(*,
         :members:
     """
     return _resnet_sl_client(
-        BasicBlock, [2, 2, 2, 2], weights, progress, **kwargs
+        BasicBlock, [2, 2, 2, 2], n_channels, weights, progress, **kwargs
     )
 
 # ------------------------------------------------------------------------------

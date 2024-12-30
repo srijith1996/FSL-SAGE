@@ -1,0 +1,8 @@
+# @package _global_
+
+batch_size: 8192
+
+model:
+  client:
+    options:
+      n_channels: 1

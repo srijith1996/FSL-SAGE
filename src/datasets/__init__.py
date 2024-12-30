@@ -39,12 +39,8 @@ def get_dataset(cfg):
 
     elif cfg.name == 'femnist':
         dataDir = '../datas/'
-
-        ## access to the dataset
-        trainSet = femnist.FEMNIST(dataDir, train=True, download=True)  #-----todo
-        testSet  = femnist.FEMNIST(dataDir, train=False, download=True)
-        #print(trainSet.imgs.shape)
-        #print(testSet.imgs.shape)
+        trainSet = femnist.Femnist(dataDir, train=True)  #-----todo
+        testSet  = femnist.Femnist(dataDir, train=False)
 
     else:
         exit(f"[ERROR] Unrecognized dataset '{cfg.name}'.")

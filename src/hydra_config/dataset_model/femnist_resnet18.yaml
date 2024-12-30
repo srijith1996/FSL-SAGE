@@ -1,15 +1,12 @@
 # @package _global_
-
 defaults:
   - femnist_base
 
 model:
   auxiliary:
     options:
-      n_input : 2304
-      n_output : 62
+      num_classes: 62
 
   server:
     options:
-      n_input  : 2304
-      n_output : 62
+      num_classes: 62
