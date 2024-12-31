@@ -4,6 +4,7 @@ from typing import Dict, List
 import os, importlib
 import logging, copy
 from dataclasses import dataclass
+from tqdm import tqdm
 import numpy as np
 import torch
 import torch.nn as nn
@@ -174,11 +175,20 @@ def run_fl_algorithm(
     acc = []
     
     # main loop
-    for t in range(cfg.rounds):
-        for i in range(cfg.num_clients):
-            for j in range(clients[i].epochs):
-                for k, (x, y) in enumerate(clients[i].train_loader):
-
+    for t in tqdm(
+        range(cfg.rounds), unit="rd", desc="Round", leave=False, colour='green'
+    ):
+        for i in tqdm(
+            range(cfg.num_clients), unit="cl", desc="Client", leave=False
+        ):
+            for j in tqdm(
+                range(clients[i].epochs), unit="ep", desc="Local epoch",
+                leave=False
+            ):
+                for k, (x, y) in enumerate(
+                    tqdm(clients[i].train_loader, unit="batch",
+                    desc="Local batch", leave=False)
+                ):
                     x = x.to(torch_device).double() \
                         if cfg.use_64bit else x.to(torch_device).float()
                     y = y.to(torch_device).long()
