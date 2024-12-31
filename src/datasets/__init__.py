@@ -38,9 +38,22 @@ def get_dataset(cfg):
                                     transform=testRule)
 
     elif cfg.name == 'femnist':
-        dataDir = '../datas/'
+        dataDir = '../datas/femnist'
         trainSet = femnist.Femnist(dataDir, train=True)  #-----todo
         testSet  = femnist.Femnist(dataDir, train=False)
+
+    elif cfg.name == 'imagenet':
+        dataDir = '../datas/imagenet'
+
+        transform = transforms.Compose([
+             transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) #,
+        ])
+
+        trainSet = datasets.ImageFolder(root=dataDir + '/train', transform=transform)
+        testSet = datasets.ImageFolder(root=dataDir + '/val', transform=transform)
 
     else:
         exit(f"[ERROR] Unrecognized dataset '{cfg.name}'.")

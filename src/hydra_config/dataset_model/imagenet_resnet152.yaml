@@ -1,0 +1,12 @@
+# @package _global_
+defaults:
+  - imagenet_base
+
+model:
+  auxiliary:
+    options:
+      num_classes: 1000
+
+  server:
+    options:
+      num_classes: 1000
