@@ -17,6 +17,7 @@ class ResNetAuxiliary(aux_models.GradScalarAuxiliaryModel):
         server,
         block: Type[Union[BasicBlock, Bottleneck]],
         layers: List[int],
+        in_planes: int = 128,
         num_classes: int = 1000,
         zero_init_residual: bool = False,
         groups: int = 1,
@@ -34,7 +35,7 @@ class ResNetAuxiliary(aux_models.GradScalarAuxiliaryModel):
             norm_layer = nn.BatchNorm2d
         self._norm_layer = norm_layer
 
-        self.inplanes = 128   # TODO: changed
+        self.inplanes = in_planes   # TODO: changed
         self.dilation = 1
         if replace_stride_with_dilation is None:
             # each element in the tuple indicates if we should replace
@@ -137,6 +138,7 @@ def _resnet_sl_auxiliary(
     server,
     block: Type[Union[BasicBlock, Bottleneck]],
     layers: List[int],
+    in_planes: int,
     weights: Optional[Any],
     progress: bool,
     device: str = 'cpu',
@@ -146,7 +148,7 @@ def _resnet_sl_auxiliary(
 ) -> List[ResNetAuxiliary]:
 
     aux_model = ResNetAuxiliary(
-        server, block, layers, device=device,
+        server, block, layers, in_planes, device=device,
         align_epochs=align_epochs, align_step=align_step,
         align_batch_size=align_batch_size, max_dataset_size=max_dataset_size,
         **kwargs
@@ -160,7 +162,7 @@ def _resnet_sl_auxiliary(
 
 # ------------------------------------------------------------------------------
 @register_auxiliary_model("resnet18", disable_check=True)
-def resnet18_sl_aux(server, layers=None,
+def resnet18_sl_aux(server, layers=None, in_planes: int = 128,
     weights: Optional[Any] = None, progress: bool = True, num_classes: int = 10,
     device='cpu', **kwargs: Any
 ):
@@ -185,7 +187,38 @@ def resnet18_sl_aux(server, layers=None,
     """
     if layers is None: layers = [2, 2, 2, 2]
     return _resnet_sl_auxiliary(
-        server, BasicBlock, layers, weights, progress,
+        server, BasicBlock, layers, in_planes, weights, progress,
+        num_classes=num_classes, device=device, **kwargs
+    )
+
+# ------------------------------------------------------------------------------
+@register_auxiliary_model("resnet152", disable_check=True)
+def resnet152_sl_aux(server, layers=None, in_planes: int=512,
+    weights: Optional[Any] = None, progress: bool = True, num_classes: int = 10,
+    device='cpu', **kwargs: Any
+):
+    """ResNet-18 from `Deep Residual Learning for Image Recognition
+    <https://arxiv.org/abs/1512.03385>`__.
+
+    Args:
+        weights (:class:`~torchvision.models.ResNet18_Weights`, optional): The
+            pretrained weights to use. See
+            :class:`~torchvision.models.ResNet18_Weights` below for
+            more details, and possible values. By default, no pre-trained
+            weights are used.
+        progress (bool, optional): If True, displays a progress bar of the
+            download to stderr. Default is True.
+        **kwargs: parameters passed to the ``torchvision.models.resnet.ResNet``
+            base class. Please refer to the `source code
+            <https://github.com/pytorch/vision/blob/main/torchvision/models/resnet.py>`_
+            for more details about this class.
+
+    .. autoclass:: torchvision.models.ResNet18_Weights
+        :members:
+    """
+    if layers is None: layers = [2, 2, 2, 2]
+    return _resnet_sl_auxiliary(
+        server, BasicBlock, layers, in_planes, weights, progress,
         num_classes=num_classes, device=device, **kwargs
     )
 

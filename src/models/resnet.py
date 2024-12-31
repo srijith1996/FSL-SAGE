@@ -421,7 +421,8 @@ class ResNetClient(nn.Module):
         layers = []
         layers.append(
             block(
-                self.inplanes, planes, stride, downsample, self.groups, self.base_width, previous_dilation, norm_layer
+                self.inplanes, planes, stride, downsample, self.groups,
+                self.base_width, previous_dilation, norm_layer
             )
         )
         self.inplanes = planes * block.expansion
@@ -459,6 +460,7 @@ class ResNetServer(nn.Module):
         self,
         block: Type[Union[BasicBlock, Bottleneck]],
         layers: List[int],
+        inplanes: int = 128,
         num_classes: int = 1000,
         zero_init_residual: bool = False,
         groups: int = 1,
@@ -471,7 +473,7 @@ class ResNetServer(nn.Module):
             norm_layer = nn.BatchNorm2d
         self._norm_layer = norm_layer
 
-        self.inplanes = 128  # TODO: changed
+        self.inplanes = inplanes  # TODO: changed
         self.dilation = 1
         if replace_stride_with_dilation is None:
             # each element in the tuple indicates if we should replace
@@ -529,7 +531,8 @@ class ResNetServer(nn.Module):
         layers = []
         layers.append(
             block(
-                self.inplanes, planes, stride, downsample, self.groups, self.base_width, previous_dilation, norm_layer
+                self.inplanes, planes, stride, downsample, self.groups,
+                self.base_width, previous_dilation, norm_layer
             )
         )
         self.inplanes = planes * block.expansion
@@ -582,12 +585,13 @@ def _resnet_sl_client(
 def _resnet_sl_server(
     block: Type[Union[BasicBlock, Bottleneck]],
     layers: List[int],
+    in_planes: int,
     weights: Optional[Any],
     progress: bool,
     **kwargs: Any,
 ) -> ResNet:
 
-    smodel = ResNetServer(block, layers, **kwargs)
+    smodel = ResNetServer(block, layers, in_planes, **kwargs)
     if weights is not None:
         smodel.load_state_dict(
             weights[1].get_state_dict(progress=progress, check_hash=True)
@@ -624,7 +628,7 @@ def resnet18_sl_client(*,
 
 # ------------------------------------------------------------------------------
 def resnet18_sl_server(*,
-    weights: Optional[Any] = None, progress: bool = True,
+    in_planes: int = 128, weights: Optional[Any] = None, progress: bool = True,
     **kwargs: Any
 ):
     """ResNet-18 from `Deep Residual Learning for Image Recognition
@@ -647,10 +651,35 @@ def resnet18_sl_server(*,
         :members:
     """
     return _resnet_sl_server(
-        BasicBlock, [2, 2, 2, 2], weights, progress, **kwargs
+        BasicBlock, [2, 2, 2, 2], in_planes, weights, progress, **kwargs
     )
 
 # ------------------------------------------------------------------------------
 register_client_server_pair('resnet18', resnet18_sl_client, resnet18_sl_server)
+
+# ------------------------------------------------------------------------------
+def resnet152_sl_client(*,
+    n_channels: int=3, weights: Optional[Any] = None, progress: bool = True,
+    **kwargs: Any
+) -> ResNet:
+
+    return _resnet_sl_client(
+        Bottleneck, [3, 8, 36, 3], n_channels, weights, progress, **kwargs
+    )
+
+# ------------------------------------------------------------------------------
+def resnet152_sl_server(*,
+    in_planes: int = 512, weights: Optional[Any] = None, progress: bool = True,
+    **kwargs: Any
+) -> ResNet:
+
+    return _resnet_sl_server(
+        Bottleneck, [3, 8, 36, 3], in_planes, weights, progress, **kwargs
+    )
+
+# ------------------------------------------------------------------------------
+register_client_server_pair(
+    'resnet152', resnet152_sl_client, resnet152_sl_server
+)
 
 # ------------------------------------------------------------------------------

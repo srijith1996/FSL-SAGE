@@ -1,0 +1,7 @@
+defaults:
+  - base_auxiliary
+
+name: resnet152
+options:
+  num_classes : ???
+  layers      : [2,2,2,2]
