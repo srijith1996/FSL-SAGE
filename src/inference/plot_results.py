@@ -47,8 +47,11 @@ def get_path(cfg, exp_cfg, key_name, path):
 
     name = os.path.join(path, file_name)
     if 'full_dirs' not in exp_cfg or not exp_cfg['full_dirs']:
-        key_name_only = key_name[:key_name.index('(')].strip() \
-            if '(' in key_name else key_name
+        ind_to_brckt = key_name.find('[')
+        if ind_to_brckt == -1: ind_to_brckt = key_name.find('(')
+        if ind_to_brckt == -1: ind_to_brckt = len(key_name)
+
+        key_name_only = key_name[:ind_to_brckt].strip()
         name = os.path.join(
             cfg["name_folder"][key_name_only],
             exp_cfg['model'],
@@ -81,8 +84,6 @@ def accuracy_plot(
                 if key_name_only not in key_names:
                     key_names.append(key_name_only)
                     handles.append(h)
-
-        print(key_names)
 
         ax.set_ylabel(metric_name)
         if x_comm_load:
@@ -166,15 +167,21 @@ def misc_exps(config):
                 )
                 return final_path
 
+            def __strip_brackets(name):
+                ind_to_brckt = name.find('[')
+                if ind_to_brckt == -1: ind_to_brckt = name.find('(')
+                if ind_to_brckt == -1: ind_to_brckt = len(name)
+                return name[:ind_to_brckt].strip()
+
             setup()
 
             save_dict = {
                 k: {
-                    k_: get_json_file(__get_path(k, v_))
+                    k_: get_json_file(__get_path(__strip_brackets(k), v_))
                     for k_, v_ in v.items()
                 } for k, v in exp['save_locs'].items()
             }
-            print(save_dict)
+            #print(save_dict)
 
             metrics_vs_dirichlet_alpha(
                 save_dict, ["test_loss", "test_acc"],
