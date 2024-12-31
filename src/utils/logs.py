@@ -25,7 +25,7 @@ def configure_logging(logfile_path):
     """
     dictConfig(DEFAULT_LOGGING)
 
-    logging.root.setLevel(logging.DEBUG)
+    logging.root.setLevel(logging.INFO)
     logging.root.handlers.clear()
 
     if logfile_path is not None:

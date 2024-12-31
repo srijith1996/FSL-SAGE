@@ -7,7 +7,12 @@ import os, pathlib
 import yaml
 import hashlib
 from datetime import datetime
+from dataclasses import dataclass
+from typing import List, Any
+import numpy as np
+
 import torch
+import torch.nn as nn
 
 def calculate_load(model):        
     param_size = 0
@@ -95,3 +100,110 @@ def create_save_dir(cfg):
         # add a plot path in case required
         cfg['plot_path'] = os.path.join(cfg['save_path'], 'plots')
         os.makedirs(cfg['plot_path'], exist_ok=True)
+
+@dataclass
+class CheckpointData():
+    round: int
+    metric_name: str
+    metric_val: float
+    client_model: nn.Module
+    server_model: nn.Module
+    auxiliary_models: List[nn.Module]
+    client_optimizers: List[Any]
+    server_optimizer: Any
+    auxiliary_optimizers: List[Any]
+
+class Checkpointer():
+    best_metric: float
+    metric_minimize: bool
+
+    def __init__(self, metric_name, metric_obj='max', save_dir='../saves'):
+        '''Initializes a checkpointer object to save or load checkpoints'''
+
+        self.metric_name = metric_name
+
+        if metric_obj == 'max':
+            self.best_metric = 0.0
+        elif metric_obj == 'min':
+            self.best_metric = np.Inf
+        else:
+            raise Exception(
+                f"expected `metric_obj` to be one of `min`, `max`. Got {metric_obj}"
+            )
+
+        self.metric_minimize = (metric_obj == 'min')
+
+        assert os.path.exists(save_dir), \
+            f"Path to save checkpoints {save_dir}, doesn't exist"
+        self.save_dir = os.path.join(save_dir, 'checkpoints')
+        os.makedirs(self.save_dir, exist_ok=True)
+
+    def is_improvement(self, metric_val):
+        if (self.metric_minimize and metric_val < self.best_metric) or (
+            (not self.metric_minimize) and metric_val > self.best_metric
+        ):
+            return True
+        else:
+            return False
+        
+    def __save_checkpoint(self, chkpt: CheckpointData, type):
+        chkpt_file = os.path.join(self.save_dir, f'{type}.pt')
+        torch.save(chkpt, chkpt_file)
+
+    def __load_checkpoint(self, type):
+        chkpt_file = os.path.join(self.save_dir, f'{type}.pt')
+        chkpt = torch.load(chkpt_file, weights_only=True)
+        assert isinstance(chkpt, CheckpointData), \
+            f"Checkpoint file @ {chkpt_file} doesn't load a `CheckpointData` object"
+        return chkpt
+
+    def save(self, round, server, clients, metrics_dict):
+        '''Save current checkpoint and best checkpoint by comparing with past
+        runs.
+        '''
+        curr_chkpt = CheckpointData(
+            round = round,
+            metric_name = self.metric_name,
+            metric_val = metrics_dict[self.metric_name],
+            client_model = clients[0].model.state_dict(),
+            server_model = server.model.state_dict(),
+            auxiliary_models = [
+                c.auxiliary_model.state_dict() for c in clients
+            ],
+            client_optimizers=[
+                c.optimizer.state_dict() for c in clients
+            ],
+            server_optimizer=server.optimizer.state_dict(),
+            auxiliary_optimizers=[
+                c.auxiliary_model.optimizer.state_dict() for c in clients
+            ]
+        )
+
+        # save current
+        self.__save_checkpoint(curr_chkpt, 'latest')
+
+        # check and save best
+        if self.is_improvement(metrics_dict[self.metric_name]):
+            self.__save_checkpoint(curr_chkpt, 'best')
+            self.best_metric = metrics_dict[self.metric_name]
+
+    def load(self, clients, server, type='latest'):
+        '''Load the checkpoint type specified by `type` and return the round,
+        client, axuiliary and server models, and the client, server and server
+        optimizers'''
+
+        chkpt = self.__load_checkpoint(type)
+
+        [c.model.load_state_dict(chkpt.client_model) for c in clients]
+        [c.model.optimizer.load_state_dict(opt) for c, opt in
+         zip(clients, chkpt.client_optimizers)]
+
+        [c.auxiliary_model.load_state_dict(am) for c, am in
+         zip(clients, chkpt.auxiliary_models)]
+        [c.auxiliary_model.optimizer.load_state_dict(opt) for c, opt in
+         zip(clients, chkpt.auxiliary_optimizers)]
+
+        server.model.load_state_dict(chkpt.server_model)
+        server.optimizer.load_state_dict(chkpt.server_optimizer)
+
+        return chkpt.round, server, clients, {chkpt.metric_name: chkpt.metric_val}

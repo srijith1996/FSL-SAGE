@@ -154,8 +154,13 @@ def main(cfg: DictConfig):
 
     # configure and run FL algorithm
     server, client_list, test_loader = setup_server_and_clients(cfg)
+    checkpointer = utils.Checkpointer(
+        'accuracy', metric_obj='max', save_dir=cfg.save_path
+    )
+
     results = run_fl_algorithm(
-        cfg, server, client_list, test_loader, global_torch_device
+        cfg, server, client_list, test_loader, checkpointer,
+        global_torch_device
     )
 
     save_res = {

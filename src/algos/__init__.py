@@ -5,6 +5,7 @@ import os, importlib
 import logging, copy
 from dataclasses import dataclass
 from tqdm import tqdm
+from tqdm.contrib.logging import logging_redirect_tqdm
 import numpy as np
 import torch
 import torch.nn as nn
@@ -12,7 +13,7 @@ import torch.nn as nn
 from omegaconf import DictConfig
 from torch.utils.data import DataLoader
 from models import Server, Client
-from utils.utils import calculate_load
+from utils.utils import calculate_load, Checkpointer
 
 # ------------------------------------------------------------------------------
 def aggregate_models(model_list, weights, device='cpu'):
@@ -104,7 +105,9 @@ class FLAlgorithm(ABC):
         test_correct = 0
         test_loss = []
         with torch.no_grad():
-            for x, y in self.test_loader:
+            for x, y in tqdm(
+                self.test_loader, desc="Batch", unit='batch', leave=False
+            ):
                 x = x.to(self.device).double() if self.use_64bit \
                     else x.to(self.device).float()
                 y = y.to(self.device).long()
@@ -160,6 +163,7 @@ def run_fl_algorithm(
     server: Server,
     clients: List[Client],
     test_loader: DataLoader,
+    checkpointer: Checkpointer,
     torch_device
 ) -> FLResults:
 
@@ -175,33 +179,41 @@ def run_fl_algorithm(
     acc = []
     
     # main loop
-    for t in tqdm(
-        range(cfg.rounds), unit="rd", desc="Round", leave=False, colour='green'
-    ):
-        for i in tqdm(
-            range(cfg.num_clients), unit="cl", desc="Client", leave=False
+    with logging_redirect_tqdm():
+        for t in tqdm(
+            range(cfg.rounds), unit="rd", desc="Round", leave=False,
+            colour='green'
         ):
-            for j in tqdm(
-                range(clients[i].epochs), unit="ep", desc="Local epoch",
-                leave=False
+            for i in tqdm(
+                range(cfg.num_clients), unit="cl", desc="Client", leave=False
             ):
-                for k, (x, y) in enumerate(
-                    tqdm(clients[i].train_loader, unit="batch",
-                    desc="Local batch", leave=False)
+                for j in tqdm(
+                    range(clients[i].epochs), unit="ep", desc="Local epoch",
+                    leave=False
                 ):
-                    x = x.to(torch_device).double() \
-                        if cfg.use_64bit else x.to(torch_device).float()
-                    y = y.to(torch_device).long()
-                    alg.client_step((t, i, j, k), x, y)
+                    for k, (x, y) in enumerate(
+                        tqdm(clients[i].train_loader, unit="batch",
+                        desc="Local batch", leave=False)
+                    ):
+                        x = x.to(torch_device).double() \
+                            if cfg.use_64bit else x.to(torch_device).float()
+                        y = y.to(torch_device).long()
+                        alg.client_step((t, i, j, k), x, y)
 
-        alg.aggregate()
-        comm_load.append(alg.comm_load)
+            alg.aggregate()
+            comm_load.append(alg.comm_load)
 
-        acc_, loss_ = alg.evaluate()
-        acc.append(acc_)
-        loss.append(loss_)
+            acc_, loss_ = alg.evaluate()
+            acc.append(acc_)
+            loss.append(loss_)
 
-        logging.info(f' > Round {t}, testing loss: {loss_:.2f}, testing acc: {100. * acc_:.2f}%')
+            logging.info(f' > Round {t}, testing loss: {loss_:.2f}, testing acc: {100. * acc_:.2f}%')
+
+            # save checkpoints
+            if t % cfg.checkpoint_interval == 0:
+                checkpointer.save(
+                    t, alg.server, alg.clients, {'accuracy': acc_}
+                )
 
     return FLResults(alg.server, alg.clients, loss, acc, comm_load)
 
