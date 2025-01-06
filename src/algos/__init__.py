@@ -10,7 +10,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from omegaconf import DictConfig
+from omegaconf import DictConfig, open_dict
 from torch.utils.data import DataLoader
 from models import Server, Client
 from utils.utils import calculate_load, Checkpointer
@@ -174,6 +174,10 @@ def run_fl_algorithm(
         device=torch_device, use_64bit=cfg.use_64bit
     )
 
+    with open_dict(cfg):
+        if cfg.comm_threshold_mb is None:
+            cfg.comm_threshold_mb = np.inf
+
     comm_load = []
     loss = []
     acc = []
@@ -207,13 +211,17 @@ def run_fl_algorithm(
             acc.append(acc_)
             loss.append(loss_)
 
-            logging.info(f' > Round {t}, testing loss: {loss_:.2f}, testing acc: {100. * acc_:.2f}%')
+            logging.info(f' > Round {t}, testing loss: {loss_:.2f}, acc: {100. * acc_:.2f}%, comm: {(alg.comm_load / (1024**3)):.2f} GiB.')
 
             # save checkpoints
             if t % cfg.checkpoint_interval == 0:
                 checkpointer.save(
                     t, alg.server, alg.clients, {'accuracy': acc_}
                 )
+
+            # stop if communication load exceeds threshold
+            if alg.comm_load / (1024**2) >= cfg.comm_threshold_mb:
+                break
 
     return FLResults(alg.server, alg.clients, loss, acc, comm_load)
 

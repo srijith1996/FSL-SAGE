@@ -16,9 +16,11 @@ device : cuda
 use_64bit: false
 
 rounds      : 200
-num_clients : 3
+num_clients : 10
 agg_factor  : auto
 checkpoint_interval : 1
+
+comm_threshold_mb : 204800
 
 # to prevent logging and working directory creation by hydra
 hydra:  
