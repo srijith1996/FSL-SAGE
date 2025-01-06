@@ -192,6 +192,37 @@ def resnet18_sl_aux(server, layers=None, in_planes: int = 128,
     )
 
 # ------------------------------------------------------------------------------
+@register_auxiliary_model("resnet50", disable_check=True)
+def resnet50_sl_aux(server, layers=None, in_planes: int=512,
+    weights: Optional[Any] = None, progress: bool = True, num_classes: int = 10,
+    device='cpu', **kwargs: Any
+):
+    """ResNet-18 from `Deep Residual Learning for Image Recognition
+    <https://arxiv.org/abs/1512.03385>`__.
+
+    Args:
+        weights (:class:`~torchvision.models.ResNet18_Weights`, optional): The
+            pretrained weights to use. See
+            :class:`~torchvision.models.ResNet18_Weights` below for
+            more details, and possible values. By default, no pre-trained
+            weights are used.
+        progress (bool, optional): If True, displays a progress bar of the
+            download to stderr. Default is True.
+        **kwargs: parameters passed to the ``torchvision.models.resnet.ResNet``
+            base class. Please refer to the `source code
+            <https://github.com/pytorch/vision/blob/main/torchvision/models/resnet.py>`_
+            for more details about this class.
+
+    .. autoclass:: torchvision.models.ResNet18_Weights
+        :members:
+    """
+    if layers is None: layers = [3, 4, 6, 3]
+    return _resnet_sl_auxiliary(
+        server, BasicBlock, layers, in_planes, weights, progress,
+        num_classes=num_classes, device=device, **kwargs
+    )
+
+# ------------------------------------------------------------------------------
 @register_auxiliary_model("resnet152", disable_check=True)
 def resnet152_sl_aux(server, layers=None, in_planes: int=512,
     weights: Optional[Any] = None, progress: bool = True, num_classes: int = 10,
@@ -216,10 +247,8 @@ def resnet152_sl_aux(server, layers=None, in_planes: int=512,
     .. autoclass:: torchvision.models.ResNet18_Weights
         :members:
     """
-    if layers is None: layers = [2, 2, 2, 2]
+    if layers is None: layers = [3, 8, 36, 3]
     return _resnet_sl_auxiliary(
         server, BasicBlock, layers, in_planes, weights, progress,
         num_classes=num_classes, device=device, **kwargs
     )
-
-# ------------------------------------------------------------------------------
