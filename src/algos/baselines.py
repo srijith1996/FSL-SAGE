@@ -4,6 +4,7 @@ import torch.nn as nn
 from torch import optim
 
 from algos import register_algorithm, aggregate_models, FLAlgorithm
+from models import config_optimizer
 
 # ------------------------------------------------------------------------------
 @register_algorithm("fed_avg")
@@ -17,8 +18,8 @@ class FedAvg(FLAlgorithm):
         # merge client and server models into one
         for c in self.clients:
             c.model = nn.Sequential(c.model, self.server.model)
-            c.optimizer = optim.Adam(
-                c.model.parameters(), lr=self.client_lr
+            c.optimizer = config_optimizer(
+                c.model.parameters(), c.optimizer_options
             )
 
     def full_model(self, x):

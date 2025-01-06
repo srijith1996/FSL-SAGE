@@ -64,7 +64,6 @@ class FLAlgorithm(ABC):
     def __init__(self,
         cfg: DictConfig, server: Server, clients: List[Client],
         test_loader: DataLoader, agg_factor: List[float],
-        client_lr: float, server_lr: float,
         device: str = 'cpu', use_64bit: bool = False
     ):
         self.cfg = cfg
@@ -72,9 +71,6 @@ class FLAlgorithm(ABC):
         self.clients = clients
         self.test_loader = test_loader
         self.criterion = server.criterion
-
-        self.client_lr = client_lr
-        self.server_lr = server_lr
 
         self.agg_factor = agg_factor
         self.device = device
@@ -170,7 +166,7 @@ def run_fl_algorithm(
     # get algorithm
     alg = ALGORITHM_REGISTRY[cfg.algorithm.name](
         cfg.algorithm, server, clients, test_loader,
-        cfg.agg_factor, cfg.model.client.lr, cfg.model.server.lr,
+        cfg.agg_factor, 
         device=torch_device, use_64bit=cfg.use_64bit
     )
 

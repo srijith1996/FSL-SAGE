@@ -1,8 +1,8 @@
 # -----------------------------------------------------------------------------
 from dataclasses import dataclass
 import os, importlib
+import torch
 import torch.nn as nn
-from torch.optim import Adam
 from typing import Callable, Dict, Tuple, Type, Union
 
 from models import aux_models
@@ -54,6 +54,17 @@ def model_package(model_name: str, aux_model_name: str) -> ModelPackage:
     return model_pack
 
 # ------------------------------------------------------------------------------
+def config_optimizer(params, cfg):
+    if cfg.name == 'adam':
+        optim = torch.optim.Adam
+    elif cfg.name == 'sgd':
+        optim = torch.optim.SGD
+    else:
+        raise Exception(f"Optimizer {cfg.name} is not configured.")
+
+    return optim(params, **cfg.options)
+
+# ------------------------------------------------------------------------------
 class Client():
     def __init__(self,
         id, train_loader, client, auxiliary, cfg, device='cpu'
@@ -61,12 +72,12 @@ class Client():
         self.model = client 
         self.auxiliary_model = auxiliary
         self.criterion = nn.NLLLoss().to(device)
-        #self.optimizer = optim.SGD(self.model.parameters(), lr=c_args["lr"])       
-        self.optimizer = Adam(self.model.parameters(), lr=cfg.lr)       
-        #self.auxiliary_criterion = nn.NLLLoss().to(device)
-        #self.auxiliary_optimizer = optim.SGD(
-        #    self.auxiliary_model.parameters(), lr=c_args["lr"]
-        #)
+
+        self.optimizer = config_optimizer(
+            self.model.parameters(), cfg.optimizer
+        )
+        self.optimizer_options = cfg.optimizer
+        #self.optimizer = Adam(self.model.parameters(), lr=cfg.lr, betas=tuple(cfg.betas))       
         
         self.train_loader = train_loader
         self.epochs = cfg.epoch
@@ -75,20 +86,18 @@ class Client():
 # -----------------------------------------------------------------------------
 class Server():
     def __init__(self,server, cfg, device='cpu'):
-        #if c_args['dataset'] == "cifar":
         self.model = server
-        # elif c_args['dataset'] == "femnist":
-        #     self.model = model.Server_model_femnist()
         self.criterion = nn.NLLLoss().to(device)
         self.alignLoss = nn.MSELoss().to(device)
 
-        # If we optimize the server once for every client, we want to
-        # divide the learning rate by the number of active clients
-        self.optimizer = Adam(
-            self.model.parameters(),
-            #lr=(cfg.lr / num_clients)
-            lr=cfg.lr
+        self.optimizer = config_optimizer(
+            self.model.parameters(), cfg.optimizer
         )
+        #self.optimizer = Adam(
+        #    self.model.parameters(),
+        #    #lr=(cfg.lr / num_clients)
+        #    lr=cfg.lr
+        #)
 
 # -----------------------------------------------------------------------------
 # Automatically import any Python files in the models/ directory
