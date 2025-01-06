@@ -658,6 +658,31 @@ def resnet18_sl_server(*,
 register_client_server_pair('resnet18', resnet18_sl_client, resnet18_sl_server)
 
 # ------------------------------------------------------------------------------
+def resnet50_sl_client(*,
+    n_channels: int=3, weights: Optional[Any] = None, progress: bool = True,
+    **kwargs: Any
+) -> ResNet:
+
+    return _resnet_sl_client(
+        Bottleneck,  [3, 4, 6, 3], n_channels, weights, progress, **kwargs
+    )
+
+# ------------------------------------------------------------------------------
+def resnet50_sl_server(*,
+    in_planes: int = 512, weights: Optional[Any] = None, progress: bool = True,
+    **kwargs: Any
+) -> ResNet:
+
+    return _resnet_sl_server(
+        Bottleneck,  [3, 4, 6, 3], in_planes, weights, progress, **kwargs
+    )
+
+# ------------------------------------------------------------------------------
+register_client_server_pair(
+    'resnet50', resnet50_sl_client, resnet50_sl_server
+)
+
+# ------------------------------------------------------------------------------
 def resnet152_sl_client(*,
     n_channels: int=3, weights: Optional[Any] = None, progress: bool = True,
     **kwargs: Any
