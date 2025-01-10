@@ -77,6 +77,10 @@ class Client():
             self.model.parameters(), cfg.optimizer
         )
         self.optimizer_options = cfg.optimizer
+
+        self.lr_scheduler = None
+        if "lr_scheduler" in cfg and cfg.lr_scheduler:
+            self.lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=cfg.lr_scheduler.milestones)
         #self.optimizer = Adam(self.model.parameters(), lr=cfg.lr, betas=tuple(cfg.betas))       
         
         self.train_loader = train_loader
@@ -93,11 +97,11 @@ class Server():
         self.optimizer = config_optimizer(
             self.model.parameters(), cfg.optimizer
         )
-        #self.optimizer = Adam(
-        #    self.model.parameters(),
-        #    #lr=(cfg.lr / num_clients)
-        #    lr=cfg.lr
-        #)
+        self.optimizer_options = cfg.optimizer
+
+        self.lr_scheduler = None
+        if "lr_scheduler" in cfg and cfg.lr_scheduler:
+            self.lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=cfg.lr_scheduler.milestones)
 
 # -----------------------------------------------------------------------------
 # Automatically import any Python files in the models/ directory

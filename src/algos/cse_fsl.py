@@ -2,7 +2,7 @@
 from utils.utils import calculate_load
 from algos import register_algorithm, aggregate_models, FLAlgorithm
 from models.aux_models import AuxiliaryModel
-
+import torch
 # ------------------------------------------------------------------------------
 @register_algorithm("cse_fsl")
 class CSEFSL(FLAlgorithm):
@@ -18,7 +18,9 @@ class CSEFSL(FLAlgorithm):
         return self.server.model(self.aggregated_client(x))
 
     def client_step(self, rd_cl_ep_it, x, y):
-
+        train_correct = 0
+        train_loss = []
+    
         t, i, j, k = rd_cl_ep_it       # (round, client, epoch, iter)
 
         self.clients[i].optimizer.zero_grad()
@@ -45,8 +47,21 @@ class CSEFSL(FLAlgorithm):
             self.server.optimizer.zero_grad()
             out = self.server.model(smashed_data)
             s_loss = self.criterion(out, y)
+
+            
+            with torch.no_grad():
+                train_loss.append(s_loss.item())
+                _, predicted = torch.max(out.data, 1)
+                train_correct += predicted.eq(y.view_as(predicted)).sum().item()
+
+
             s_loss.backward()
             self.server.optimizer.step()
+
+        batch_acc = train_correct / y.size(dim=0)
+        batch_train_loss = sum(train_loss) / len(train_loss)
+
+        return batch_acc, batch_train_loss
 
     def aggregate(self):
         self.aggregate_clients()

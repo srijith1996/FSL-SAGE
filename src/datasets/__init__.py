@@ -42,6 +42,23 @@ def get_dataset(cfg):
         trainSet = femnist.Femnist(dataDir, train=True)  #-----todo
         testSet  = femnist.Femnist(dataDir, train=False)
 
+    elif cfg.name == 'cifar100':
+        dataDir = '../datas/cifar100'
+
+        train_transform = transforms.Compose([
+                    transforms.RandomHorizontalFlip(0.5),
+                    transforms.RandomCrop(32, 4),
+                    transforms.ToTensor(),
+                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
+        test_transform =  transforms.Compose([
+                    transforms.Resize(32),
+                    transforms.CenterCrop(32),
+                    transforms.ToTensor(),
+                    transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
+
+        trainSet = datasets.CIFAR100(dataDir, train=True, download=True, transform=train_transform)
+        testSet = datasets.CIFAR100(dataDir, train=False, download=True, transform=test_transform)
+
     elif cfg.name == 'imagenet':
         dataDir = '../datas/imagenet'
 

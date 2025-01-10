@@ -1,7 +1,7 @@
 defaults:
   - base_auxiliary
 
-name: resnet152
+name: resnet110_cifar100 
 options:
   num_classes : 100
-  layers      : [3, 8, 36, 3]
+  layers      : [18, 18, 18]

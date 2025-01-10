@@ -18,6 +18,7 @@ from models import model_package, Client, Server
 import datasets as dss
 from utils import utils, logs
 from algos import run_fl_algorithm
+from omegaconf import OmegaConf
 
 # -----------------------------------------------------------------------------
 global_torch_device = None
@@ -56,13 +57,13 @@ def get_dataloaders(cfg) -> Tuple[List[DataLoader], DataLoader]:
             DataLoader(
                 dss.DatasetSplit(trainSet, train_set),
                 batch_size=cfg.model.client.batch_size,
-                shuffle=True, num_workers=16, pin_memory=True, 
+                shuffle=True, num_workers=4, pin_memory=True, 
             )
         )
     
     testloader = DataLoader(
         testSet, batch_size=cfg.model.client.batch_size, shuffle=False,
-        num_workers=16, pin_memory=True,
+        num_workers=4, pin_memory=True,
     )
 
     return trainloaders, testloader
@@ -136,6 +137,9 @@ def setup_server_and_clients(
 )
 def main(cfg: DictConfig):
 
+    print("##" * 10 + " CFG FILE IS: " + "##" * 10)
+    print(OmegaConf.to_yaml(cfg))
+
     # setup logging
     with open_dict(cfg):
         if cfg.save:
@@ -164,6 +168,8 @@ def main(cfg: DictConfig):
     )
 
     save_res = {
+        'train_loss' : results.train_loss,
+        'train_acc' : results.train_acc,
         'test_loss' : results.loss,
         'test_acc'  : results.accuracy,
         'comm_load' : results.comm_load

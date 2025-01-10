@@ -151,6 +151,8 @@ class FLResults():
     client_list : List[Client]
     loss        : List[float]
     accuracy    : List[float]
+    train_loss        : List[float]
+    train_acc   : List[float]
     comm_load   : List[float]
 
 # ------------------------------------------------------------------------------
@@ -177,6 +179,10 @@ def run_fl_algorithm(
     comm_load = []
     loss = []
     acc = []
+    train_loss = []
+    train_acc = []
+    round_train_loss = []
+    round_train_acc = []
     
     # main loop
     with logging_redirect_tqdm():
@@ -184,6 +190,8 @@ def run_fl_algorithm(
             range(cfg.rounds), unit="rd", desc="Round", leave=False,
             colour='green'
         ):
+            running_acc = 0
+
             for i in tqdm(
                 range(cfg.num_clients), unit="cl", desc="Client", leave=False
             ):
@@ -198,8 +206,27 @@ def run_fl_algorithm(
                         x = x.to(torch_device).double() \
                             if cfg.use_64bit else x.to(torch_device).float()
                         y = y.to(torch_device).long()
-                        alg.client_step((t, i, j, k), x, y)
 
+                        step_train_acc, step_train_loss = alg.client_step((t, i, j, k), x, y)
+
+                        round_train_loss.append(step_train_loss)
+                        round_train_acc.append(step_train_acc)
+
+                if clients[i].lr_scheduler:
+                    clients[i].lr_scheduler.step()
+                    last_lr = clients[i].lr_scheduler.get_last_lr()[0]
+                    logging.info(f" > Current lr is {last_lr}")
+
+
+
+            train_acc_ = sum(round_train_acc) / len(round_train_acc)
+            train_loss_ = sum(round_train_loss) / len(round_train_loss)
+            train_acc.append(train_acc_)
+            train_loss.append(train_loss_)
+
+            round_train_acc = []
+            round_train_loss = []
+           
             alg.aggregate()
             comm_load.append(alg.comm_load)
 
@@ -207,7 +234,7 @@ def run_fl_algorithm(
             acc.append(acc_)
             loss.append(loss_)
 
-            logging.info(f' > Round {t}, testing loss: {loss_:.2f}, acc: {100. * acc_:.2f}%, comm: {(alg.comm_load / (1024**3)):.2f} GiB.')
+            logging.info(f' > Round {t},  training loss: {train_loss_:.2f}, training acc: {100. * train_acc_:.2f}%, testing loss: {loss_:.2f}, acc: {100. * acc_:.2f}%, comm: {(alg.comm_load / (1024**3)):.2f} GiB.')
 
             # save checkpoints
             if t % cfg.checkpoint_interval == 0:
@@ -219,6 +246,6 @@ def run_fl_algorithm(
             if alg.comm_load / (1024**2) >= cfg.comm_threshold_mb:
                 break
 
-    return FLResults(alg.server, alg.clients, loss, acc, comm_load)
+    return FLResults(alg.server, alg.clients, loss, acc, train_loss, train_acc, comm_load)
 
 # ------------------------------------------------------------------------------

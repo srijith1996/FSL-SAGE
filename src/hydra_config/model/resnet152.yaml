@@ -8,9 +8,22 @@ client:
   batch_size : 128
   lr         : 0.01
   options:
-
+  optimizer:
+    name: sgd
+    options:
+      lr          : 0.1
+      weight_decay: 0.0001
+      momentum : 0.9
 
 server:
   lr : 0.001
+  
   options:
-    num_classes : 10
+    num_classes : 100
+  
+  optimizer:
+    name: sgd
+    options:
+      lr          : 0.1
+      weight_decay: 0.0001
+      momentum : 0.9
