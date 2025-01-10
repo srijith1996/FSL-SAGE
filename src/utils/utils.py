@@ -8,6 +8,7 @@ import yaml
 import hashlib
 from datetime import datetime
 import torch
+import torch.nn as nn
 
 def calculate_load(model):        
     param_size = 0
@@ -95,3 +96,69 @@ def create_save_dir(cfg):
         # add a plot path in case required
         cfg['plot_path'] = os.path.join(cfg['save_path'], 'plots')
         os.makedirs(cfg['plot_path'], exist_ok=True)
+
+def count_trainable_params(model: nn.Module):
+    trainable_params = 0
+    all_params = 0
+    for _, param in model.named_parameters():
+        num_params = param.numel()
+        all_params += num_params
+        if param.requires_grad:
+            trainable_params += num_params
+
+    return trainable_params, all_params
+
+def __reduce_dict(module_dict, group_name):
+    sub_dict = {}
+    for k, v in module_dict.items():
+        gn, rem = k.split('.', 1)
+        if gn == group_name:
+            sub_dict[rem] = v
+
+    return sub_dict
+
+def get_nested_dict(module_dict):
+    params = {}
+    for name, param in module_dict.items():
+        if '.' not in name:
+            params[name] = param
+            continue
+
+        group_name, _ = name.split('.', 1)
+        if group_name in params.keys():
+            continue
+        params[group_name] = get_nested_dict(
+            __reduce_dict(module_dict, group_name)
+        )
+
+    return params
+
+def recursive_map(fn, nested_dict):
+    res_dict = {}
+    for k, v in nested_dict.items():
+        if isinstance(v, dict):
+            res_dict[k] = recursive_map(fn, v)
+        else:
+            res_dict[k] = fn(v)
+    return res_dict
+
+OKGREEN = '\033[92m'
+BOLD = '\033[1m'
+ENDC = '\033[0m'
+
+def pretty(d, color_cond_dict, indent=0, sep='|-- '):
+    for (key, value), color_cond in zip(d.items(), color_cond_dict.values()):
+        if isinstance(value, dict):
+            logging.info(sep * indent + BOLD + str(key) + ENDC)
+            pretty(value, color_cond, indent+1)
+        else:
+            if color_cond: print(OKGREEN, end='')
+            logging.info(sep * indent + str(key) + '\t' + str(value))
+            if color_cond: print(ENDC, end='')
+
+def print_model(model):
+    model_dict = get_nested_dict(dict(model.named_parameters()))
+    pretty(
+        recursive_map(lambda x: list(x.shape), model_dict),
+        recursive_map(lambda x: x.requires_grad, model_dict) 
+    )

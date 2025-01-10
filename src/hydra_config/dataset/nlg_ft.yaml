@@ -2,3 +2,4 @@ name: nlg_ft
 distribution: iid
 seq_len: 512
 obj: clm   # one of 'clm' or 'jlm'
+problem_type: text_2_text

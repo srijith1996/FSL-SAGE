@@ -2,6 +2,8 @@
 import copy
 import torch.nn as nn
 from torch import optim
+from functools import partial
+from utils import opt_utils, model_utils
 
 from algos import register_algorithm, aggregate_models, FLAlgorithm
 
@@ -10,24 +12,32 @@ from algos import register_algorithm, aggregate_models, FLAlgorithm
 class FedAvg(FLAlgorithm):
 
     def __init__(self,
-        *args, **kwargs 
+        *args, optimizer_options=None, **kwargs 
     ):
+    # TODO: how to neatly incorporate the optimizer_options in here?
         super(FedAvg, self).__init__(*args, **kwargs)
 
         # merge client and server models into one
-        for c in self.clients:
-            c.model = nn.Sequential(c.model, self.server.model)
-            c.optimizer = optim.Adam(
-                c.model.parameters(), lr=self.client_lr
+        if optimizer_options is not None:
+            opt_fn = partial(
+                opt_utils.create_adam_optimizer_from_args,
+                args=optimizer_options, grouped_parameters=None
             )
+        else:
+            opt_fn = lambda m: optim.Adam(m.parameters(), lr=self.client_lr)
 
-    def full_model(self, x):
-        return self.aggregated_client(x)
+        for c in self.clients:
+            c.model = model_utils.ClientServerSequential(c.model, self.server.model)
+            c.optimizer = opt_fn(c.model)
+
+    def full_model(self, x, *args, **kwargs):
+        return self.aggregated_client(x, *args, **kwargs)
 
     def client_step(self, rd_cl_ep_it, x, y, *args):
         t, i, j, k = rd_cl_ep_it
         self.clients[i].optimizer.zero_grad()
         out = self.clients[i].model(x)
+        out = out[0] if isinstance(out, tuple) else out
         loss = self.criterion(out, y, *args)
         loss.backward()
         self.clients[i].optimizer.step()

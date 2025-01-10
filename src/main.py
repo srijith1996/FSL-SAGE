@@ -84,8 +84,13 @@ def check_and_mark_lora_trainable(cfg, server, clients):
         return
 
     loralib.mark_only_lora_as_trainable(server.model)
-    for c in clients:
-        loralib.mark_only_lora_as_trainable(c.model)
+    for c in clients: loralib.mark_only_lora_as_trainable(c.model)
+
+    logging.info("After marking LoRA only as trainable:-")
+    tr_p, all_p = utils.count_trainable_params(clients[0].model)
+    logging.info(f"> Client: # trainable params: {tr_p}, Total # params: {all_p}, Fraction trainable: {(tr_p/all_p * 100.0):.2f}%")
+    tr_p, all_p = utils.count_trainable_params(server.model)
+    logging.info(f"> Server: # trainable params: {tr_p}, Total # params: {all_p}, Fraction trainable: {(tr_p/all_p * 100.0):.2f}%")
         
 # -----------------------------------------------------------------------------
 def model_constructors(cfg) -> Callable:
@@ -159,12 +164,15 @@ def setup_server_and_clients(
         else:
             model.load_state_dict(saved_state_dict, strict=False)
 
+        logging.info(f"Successfully loaded pretrained weights: {cfg.model.pretrained_weights_file}")
+
     __safe_load_weights(client_list[0].model)
     client_server_params = client_to_server_params(client_list[0].model) \
         if client_to_server_params is not None else dict()
 
     __safe_load_weights(server.model, **client_server_params)
 
+    # Copy first client model's and aux model's weights to all clients
     for c in client_list:
         c.model.load_state_dict(client_list[0].model.state_dict())
         c.model.to(global_torch_device)
@@ -180,10 +188,16 @@ def setup_server_and_clients(
         client_list[0].model, server.model, client_list[0].auxiliary_model
     )
     logging.info(
-        f"Model size - Client = {mod_sizes[0]:.3f}MiB, Server = {mod_sizes[1]:.3f}MiB, Auxiliary = {mod_sizes[2]:.3f}MiB."
+        f"Model size - Client = {mod_sizes[0]:.3f} MiB, Server = {mod_sizes[1]:.3f} MiB, Auxiliary = {mod_sizes[2]:.3f} MiB."
     )
         
     check_and_mark_lora_trainable(cfg, server, client_list)
+
+    if False:
+        utils.print_model(server.model)
+        utils.print_model(client_list[0].model)
+        client_list[0].auxiliary_model
+
     return server, client_list, test_loader
 
 # -----------------------------------------------------------------------------
