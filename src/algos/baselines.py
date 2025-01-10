@@ -3,6 +3,8 @@ import copy
 import torch.nn as nn
 import torch
 from torch import optim
+from functools import partial
+from utils import opt_utils, model_utils
 
 from algos import register_algorithm, aggregate_models, FLAlgorithm
 from models import config_optimizer, config_lr_scheduler
@@ -12,13 +14,14 @@ from models import config_optimizer, config_lr_scheduler
 class FedAvg(FLAlgorithm):
 
     def __init__(self,
-        *args, **kwargs 
+        *args, optimizer_options=None, **kwargs 
     ):
+    # TODO: how to neatly incorporate the optimizer_options in here?
         super(FedAvg, self).__init__(*args, **kwargs)
 
         # merge client and server models into one
         for c in self.clients:
-            c.model = nn.Sequential(c.model, self.server.model)
+            c.model = model_utils.ClientServerSequential(c.model, self.server.model)
             c.optimizer = config_optimizer(
                 c.model.parameters(), c.optimizer_options
             )
@@ -26,13 +29,14 @@ class FedAvg(FLAlgorithm):
                 c.optimizer, c.lr_scheduler_options
             )
 
-    def full_model(self, x):
-        return self.aggregated_client(x)
+    def full_model(self, x, *args, **kwargs):
+        return self.aggregated_client(x, *args, **kwargs)
 
     def client_step(self, rd_cl_ep_it, x, y, *args):
         t, i, j, k = rd_cl_ep_it
         self.clients[i].optimizer.zero_grad()
         out = self.clients[i].model(x)
+        out = out[0] if isinstance(out, tuple) else out
         loss = self.criterion(out, y, *args)
 
         with torch.no_grad():

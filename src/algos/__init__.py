@@ -3,6 +3,8 @@ from abc import ABC, abstractmethod
 from typing import Dict, List, Callable
 import os, importlib
 import logging, copy
+from tqdm import tqdm
+from tqdm.contrib.logging import logging_redirect_tqdm
 from dataclasses import dataclass
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
@@ -156,14 +158,14 @@ class FLResults():
     metric_lists : Dict[str, List]
 
 # ------------------------------------------------------------------------------
-def prepare_batch(data, torch_device, use_64bit=False):
+def prepare_batch(data, torch_device, task, use_64bit=False):
     for i, d in enumerate(data):
         data[i] = d.to(torch_device)
 
     x, y = data[0], data[1]
     if torch.is_floating_point(x):
         x = x.double() if use_64bit else x.float()
-    y = y.long()
+    y = y.long() if task == 'classification' else y
     args = list(data)[2:] if len(data) > 2 else []
 
     return x, y, args
@@ -171,16 +173,20 @@ def prepare_batch(data, torch_device, use_64bit=False):
 # ------------------------------------------------------------------------------
 def evaluate(
     model, test_loader, metric_fns=met_utils.METRIC_FUNCTION_DICT,
-    use_64bit=False, device='cpu'
+    problem_type='image_classification', use_64bit=False, device='cpu'
 ):
     metrics = {}
+    for v in metric_fns.values(): v.reset()
     with torch.no_grad():
         for data in tqdm(
             test_loader, desc="Test Batch", unit='batch', leave=False
         ):
-            x, y, args = prepare_batch(data, device, use_64bit)
+            x, y, args = prepare_batch(
+                data, device, problem_type, use_64bit
+            )
             out = model(x)
-            for v in metric_fns.values(): v.update(out, y)
+            for v in metric_fns.values():
+                v.update(out, y)
 
         for k, v in metric_fns.items(): metrics[k] = v.average()
     return metrics
@@ -263,6 +269,11 @@ def run_fl_algorithm(
 ) -> FLResults:
 
     # get algorithm
+    if cfg.algorithm.name == 'fed_avg':
+        kwargs = {'optimizer_options': cfg.model.client.optimizer}
+    else:
+        kwargs = {}
+
     alg = ALGORITHM_REGISTRY[cfg.algorithm.name](
         cfg.algorithm, server, clients, test_loader,
         cfg.agg_factor, 
@@ -355,6 +366,7 @@ def run_fl_algorithm(
             alg.eval_mode()
             metrics = evaluate(
                 alg.full_model, test_loader, metric_fns=metric_fns,
+                problem_type=cfg.dataset.problem_type, 
                 use_64bit=cfg.use_64bit, device=torch_device
             )
 
