@@ -193,7 +193,14 @@ class Server():
 
     def forward(self, pred, target, mask=None):
 
-        loss = self.cel(pred, target)
+        _batch, _len = pred.shape[:2]
+        logprobs = torch.nn.functional.log_softmax(pred.view(-1, pred.size(-1)), dim=-1)
+        nll_loss = -logprobs.gather(dim=-1, index=target.view(-1).unsqueeze(1))
+        nll_loss = nll_loss.squeeze(1)
+        smooth_loss = -logprobs.mean(dim=-1)
+        loss = (1.0 - self.smoothing) * nll_loss + self.smoothing * smooth_loss
+        loss = loss.view(_batch, _len)
+ 
         if mask is None:
             mask = torch.ones(
                 loss.shape, dtype=loss.dtype, device=loss.device
@@ -220,7 +227,7 @@ class Server():
         if 'optimizer' in cfg:
             with open_dict(cfg): cfg.optimizer['lr'] = cfg.lr
             self.optimizer = opt_utils.create_adam_optimizer_from_args(
-                self.model.parameters(), cfg.optimizer,
+                self.model, cfg.optimizer,
                 grouped_parameters=None
             )
         else:
