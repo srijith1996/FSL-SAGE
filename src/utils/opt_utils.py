@@ -82,7 +82,7 @@ class AdamW(Optimizer):
                     bias_correction2 = 1.0 - beta2 ** state["step"]
                     step_size = step_size * math.sqrt(bias_correction2) / bias_correction1
 
-                p.data.addcdiv_(-step_size, exp_avg, denom)
+                p.data.addcdiv_(exp_avg, denom, value=-step_size)
 
                 # Just adding the square of the weights to the loss function is *not*
                 # the correct way of using L2 regularization/weight decay with Adam,
@@ -96,7 +96,6 @@ class AdamW(Optimizer):
                     p.data.add_(p.data, alpha=-group["lr"] * group["weight_decay"])
 
         return loss
-
 
 class CosineAnnealingWarmupRestarts(_LRScheduler):
     """
@@ -151,7 +150,6 @@ class CosineAnnealingWarmupRestarts(_LRScheduler):
         for param_group in self.optimizer.param_groups: 
             param_group['lr'] = _lr
 
-
 class CyclicScheduler(_LRScheduler):
     def __init__(
         self,
@@ -197,8 +195,6 @@ class CyclicScheduler(_LRScheduler):
         for param_group in self.optimizer.param_groups: #, self.get_lr()):
             param_group['lr'] = _lr
 
-
-
 def get_linear_schedule_with_warmup(
     optimizer, 
     num_warmup_steps, 
@@ -214,7 +210,6 @@ def get_linear_schedule_with_warmup(
         return max(0.0, float(num_training_steps - current_step) / float(max(1, num_training_steps - num_warmup_steps)))
     return LambdaLR(optimizer, lr_lambda, last_epoch)
 
-
 def get_constant_schedule_with_warmup(
     optimizer, 
     num_warmup_steps, 
@@ -229,7 +224,6 @@ def get_constant_schedule_with_warmup(
             return float(current_step) / float(max(1, num_warmup_steps))
         return 1.0
     return LambdaLR(optimizer, lr_lambda, last_epoch)
-
 
 def create_grouped_parameters(model, no_decay_bias): # args):
     if not no_decay_bias:
@@ -250,7 +244,6 @@ def create_grouped_parameters(model, no_decay_bias): # args):
         }]
     return optimizer_grouped_parameters
 
-
 def create_adam_optimizer(
     model, 
     lr, 
@@ -259,7 +252,7 @@ def create_adam_optimizer(
     beta1=0.9, 
     beta2=0.98, 
     correct_bias=True, 
-    adam_epislon=1e-6, 
+    adam_epsilon=1e-6, 
     no_decay_bias=False
 ):
     if optimizer_grouped_parameters is None:
@@ -269,17 +262,15 @@ def create_adam_optimizer(
         optimizer_grouped_parameters, 
         lr=lr, 
         betas=(beta1, beta2), 
-        eps=adam_epislon, 
+        eps=adam_epsilon, 
         weight_decay=weight_decay, 
         correct_bias=correct_bias
     )
     return optimizer
 
-
 def create_sgd_optimizer(model, lr):
     optimizer = torch.optim.SGD(model.parameters(), lr=lr, momentum=0.0)
     return optimizer
-    
 
 def create_adam_optimizer_from_args(model, args, grouped_parameters=None):
     if grouped_parameters is None:
@@ -289,12 +280,11 @@ def create_adam_optimizer_from_args(model, args, grouped_parameters=None):
         grouped_parameters, 
         lr=args.lr, 
         betas=(args.adam_beta1, args.adam_beta2), 
-        eps=args.adam_epislon, 
+        eps=args.adam_epsilon, 
         weight_decay=args.weight_decay, 
         correct_bias=args.correct_bias
     )
     return optimizer
-
 
 def create_optimizer_scheduler(optimizer, args):
     if args.scheduler == 'cosine':
@@ -325,4 +315,4 @@ def create_optimizer_scheduler(optimizer, args):
     else:
         # constant leanring rate.
         scheduler = None
-    return scheduler 
+    return scheduler

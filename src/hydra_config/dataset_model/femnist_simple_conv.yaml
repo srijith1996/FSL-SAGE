@@ -1,5 +1,4 @@
 # @package _global_
-
 defaults:
   - femnist_base
 
