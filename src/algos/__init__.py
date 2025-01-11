@@ -151,9 +151,23 @@ class FLResults():
     client_list : List[Client]
     loss        : List[float]
     accuracy    : List[float]
-    train_loss        : List[float]
-    train_acc   : List[float]
+    train_metrics : Dict[str, List]
     comm_load   : List[float]
+
+# ------------------------------------------------------------------------------
+def __print_aggregate_metrics(client_metrics_dict, prefix='tr.'):
+    agg_metrics_dict = {
+        k: [np.mean(v)] for k, v in client_metrics_dict[0].items()
+    }
+    for met_dict in client_metrics_dict[1:]:
+        [agg_metrics_dict[k].append(np.mean(v)) for k, v in met_dict.items()]
+
+    print_str = ''
+    for i, (k, v) in enumerate(agg_metrics_dict.items()):
+        print_str += f'{prefix} {k}: {np.mean(v):.2f}' if i == 0 \
+            else f', {prefix} {k}: {np.mean(v):.2f}'
+
+    return print_str
 
 # ------------------------------------------------------------------------------
 def run_fl_algorithm(
@@ -177,12 +191,9 @@ def run_fl_algorithm(
             cfg.comm_threshold_mb = np.inf
 
     comm_load = []
-    loss = []
-    acc = []
-    train_loss = []
-    train_acc = []
-    round_train_loss = []
-    round_train_acc = []
+    test_loss = []
+    test_acc = []
+    train_metrics = [{} for _ in range(cfg.num_clients)]
     
     # main loop
     with logging_redirect_tqdm():
@@ -190,51 +201,67 @@ def run_fl_algorithm(
             range(cfg.rounds), unit="rd", desc="Round", leave=False,
             colour='green'
         ):
-            running_acc = 0
-
-            for i in tqdm(
-                range(cfg.num_clients), unit="cl", desc="Client", leave=False
-            ):
-                for j in tqdm(
-                    range(clients[i].epochs), unit="ep", desc="Local epoch",
-                    leave=False
-                ):
-                    for k, (x, y) in enumerate(
-                        tqdm(clients[i].train_loader, unit="batch",
-                        desc="Local batch", leave=False)
+            with tqdm(
+                range(cfg.num_clients), unit="cl", desc="Client", leave=False,
+                colour='blue'
+            ) as pbar:
+                for i in pbar:
+                    tr_mets = {}
+                    for j in tqdm(
+                        range(clients[i].epochs), unit="ep", desc="Local epoch",
+                        leave=False
                     ):
-                        x = x.to(torch_device).double() \
-                            if cfg.use_64bit else x.to(torch_device).float()
-                        y = y.to(torch_device).long()
+                        for k, (x, y) in enumerate(
+                            tqdm(clients[i].train_loader, unit="batch",
+                            desc="Local batch", leave=False)
+                        ):
+                            x = x.to(torch_device).double() \
+                                if cfg.use_64bit else x.to(torch_device).float()
+                            y = y.to(torch_device).long()
 
-                        step_train_acc, step_train_loss = alg.client_step((t, i, j, k), x, y)
+                            tr_metrics = alg.client_step(
+                                (t, i, j, k), x, y
+                            )
+                            if j == 0 and k == 0:
+                                tr_mets = {
+                                    k: [v] for k, v in tr_metrics.items()
+                                }
+                            else:
+                                [tr_mets[k].append(v) for k, v in
+                                tr_metrics.items()]
 
-                        round_train_loss.append(step_train_loss)
-                        round_train_acc.append(step_train_acc)
+                    # compute mean of metrics
+                    tr_mets = {k: np.mean(v) for k, v in tr_mets.items()}
+                    if t == 0:
+                        train_metrics[i] = {
+                            k: [v] for k, v in tr_mets.items()
+                        }
+                    else:
+                        [train_metrics[i][k].append(v) for k, v in
+                        tr_mets.items()]
 
-                if clients[i].lr_scheduler:
-                    clients[i].lr_scheduler.step()
-                    last_lr = clients[i].lr_scheduler.get_last_lr()[0]
-                    logging.info(f" > Current lr is {last_lr}")
+                    if clients[i].lr_scheduler:
+                        clients[i].lr_scheduler.step()
+                        lr = clients[i].lr_scheduler.get_last_lr()[0]
+                    else:
+                        lr = clients[i].optimizer.param_groups[0]['lr']
 
+                    pbar.set_postfix(lr=lr, **tr_mets)
 
+            tr_str = __print_aggregate_metrics(train_metrics)
 
-            train_acc_ = sum(round_train_acc) / len(round_train_acc)
-            train_loss_ = sum(round_train_loss) / len(round_train_loss)
-            train_acc.append(train_acc_)
-            train_loss.append(train_loss_)
-
-            round_train_acc = []
-            round_train_loss = []
-           
             alg.aggregate()
             comm_load.append(alg.comm_load)
 
             acc_, loss_ = alg.evaluate()
-            acc.append(acc_)
-            loss.append(loss_)
+            test_acc.append(acc_)
+            test_loss.append(loss_)
 
-            logging.info(f' > Round {t},  training loss: {train_loss_:.2f}, training acc: {100. * train_acc_:.2f}%, testing loss: {loss_:.2f}, acc: {100. * acc_:.2f}%, comm: {(alg.comm_load / (1024**3)):.2f} GiB.')
+            logging.info(
+                f' > Round {t}, ' + tr_str +
+                f', ts. loss: {loss_:.2f}, ts. acc: {100. * acc_:.2f}%' +
+                f', comm: {(alg.comm_load / (1024**3)):.2f} GiB.'
+            )
 
             # save checkpoints
             if t % cfg.checkpoint_interval == 0:
@@ -246,6 +273,9 @@ def run_fl_algorithm(
             if alg.comm_load / (1024**2) >= cfg.comm_threshold_mb:
                 break
 
-    return FLResults(alg.server, alg.clients, loss, acc, train_loss, train_acc, comm_load)
+    return FLResults(
+        alg.server, alg.clients, test_loss, test_acc,
+        train_metrics, comm_load
+    )
 
 # ------------------------------------------------------------------------------

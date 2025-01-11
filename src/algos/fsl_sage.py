@@ -1,7 +1,7 @@
 # ------------------------------------------------------------------------------
+import torch
 from utils.utils import calculate_load
 from algos import register_algorithm, FLAlgorithm
-import torch
 
 # ------------------------------------------------------------------------------
 @register_algorithm("fsl_sage")
@@ -18,9 +18,7 @@ class FSLSAGE(FLAlgorithm):
         return self.server.model(self.aggregated_client(x))
 
     def client_step(self, rd_cl_ep_it, x, y):
-        train_correct = 0
-        train_loss = []
-    
+
         t, i, j, k = rd_cl_ep_it       # (round, client, epoch, iter)
 
         self.clients[i].optimizer.zero_grad()
@@ -31,6 +29,7 @@ class FSLSAGE(FLAlgorithm):
 
         # server model update
         local_iter = j * self.iters_per_epoch[i] + k
+        ret_dict = dict()
         if local_iter % self.server_update_interval == 0:
             smashed_data = splitting_output.clone().detach().requires_grad_(True)
             self.comm_load += smashed_data.numel() * smashed_data.element_size()
@@ -40,10 +39,11 @@ class FSLSAGE(FLAlgorithm):
             s_loss = self.criterion(out, y)
 
             with torch.no_grad():
-                train_loss.append(s_loss.item())
+                train_loss = s_loss.item()
                 _, predicted = torch.max(out.data, 1)
-                train_correct += predicted.eq(y.view_as(predicted)).sum().item()
-
+                train_correct = predicted.eq(y.view_as(predicted)).sum().item()
+                ret_dict['g_loss'] = train_loss
+                ret_dict['g_acc'] = train_correct / y.size(dim=0)
 
             s_loss.backward()
             self.server.optimizer.step()
@@ -66,9 +66,6 @@ class FSLSAGE(FLAlgorithm):
         splitting_output.backward(client_grad_approx)
         self.clients[i].optimizer.step()
 
-        batch_acc = train_correct / y.size(dim=0)
-        batch_train_loss = sum(train_loss) / len(train_loss)
-
-        return batch_acc, batch_train_loss
+        return ret_dict
 
 # ------------------------------------------------------------------------------

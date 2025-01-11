@@ -1,7 +1,7 @@
 # ------------------------------------------------------------------------------
 import copy
 import torch.nn as nn
-import torch 
+import torch
 from torch import optim
 
 from algos import register_algorithm, aggregate_models, FLAlgorithm
@@ -27,26 +27,22 @@ class FedAvg(FLAlgorithm):
         return self.aggregated_client(x)
 
     def client_step(self, rd_cl_ep_it, x, y):
-        train_correct = 0
-        train_loss = []
-    
         t, i, j, k = rd_cl_ep_it
         self.clients[i].optimizer.zero_grad()
         out = self.clients[i].model(x)
         loss = self.criterion(out, y)
 
         with torch.no_grad():
-            train_loss.append(loss.item())
+            train_loss = loss.item()
             _, predicted = torch.max(out.data, 1)
-            train_correct += predicted.eq(y.view_as(predicted)).sum().item()
+            train_correct = predicted.eq(y.view_as(predicted)).sum().item()
 
         loss.backward()
         self.clients[i].optimizer.step()
-
-        batch_acc = train_correct / y.size(dim=0)
-        batch_train_loss = sum(train_loss) / len(train_loss)
-
-        return batch_acc, batch_train_loss
+        return {
+            'acc' : train_correct / y.size(dim=0),
+            'loss': train_loss
+        }
     
 # ------------------------------------------------------------------------------
 @register_algorithm("sl_single_server")
@@ -56,9 +52,6 @@ class SplitFedv2(FLAlgorithm):
         return self.server.model(self.aggregated_client(x))
 
     def client_step(self, rd_cl_ep_it, x, y):
-        train_correct = 0
-        train_loss = []
-
         t, i, j, k = rd_cl_ep_it
         self.clients[i].optimizer.zero_grad()
         self.server.optimizer.zero_grad()
@@ -76,9 +69,9 @@ class SplitFedv2(FLAlgorithm):
         loss = self.server.criterion(output, y)
 
         with torch.no_grad():
-            train_loss.append(loss.item())
+            train_loss = loss.item()
             _, predicted = torch.max(output.data, 1)
-            train_correct += predicted.eq(y.view_as(predicted)).sum().item()
+            train_correct = predicted.eq(y.view_as(predicted)).sum().item()
 
         loss.backward()
 
@@ -91,11 +84,10 @@ class SplitFedv2(FLAlgorithm):
         self.server.optimizer.step()
         self.clients[i].optimizer.step()
 
-        batch_acc = train_correct / y.size(dim=0)
-        batch_train_loss = sum(train_loss) / len(train_loss)
-
-        return batch_acc, batch_train_loss
-    
+        return {
+            'acc' : train_correct / y.size(dim=0),
+            'loss': train_loss
+        }
 
 # ------------------------------------------------------------------------------
 @register_algorithm("sl_multi_server")
@@ -114,9 +106,6 @@ class SplitFedv1(FLAlgorithm):
         return self.aggregated_server(self.aggregated_client(x))
 
     def client_step(self, rd_cl_ep_it, x, y):
-        train_correct = 0
-        train_loss = []
-
         t, i, j, k = rd_cl_ep_it
 
         self.clients[i].optimizer.zero_grad()
@@ -135,9 +124,9 @@ class SplitFedv1(FLAlgorithm):
         loss = self.criterion(output, y)
 
         with torch.no_grad():
-            train_loss.append(loss.item())
+            train_loss = loss.item()
             _, predicted = torch.max(output.data, 1)
-            train_correct += predicted.eq(y.view_as(predicted)).sum().item()
+            train_correct = predicted.eq(y.view_as(predicted)).sum().item()
 
         loss.backward()
 
@@ -150,11 +139,10 @@ class SplitFedv1(FLAlgorithm):
         self.servers[i].optimizer.step()
         self.clients[i].optimizer.step()
 
-        batch_acc = train_correct / y.size(dim=0)
-        batch_train_loss = sum(train_loss) / len(train_loss)
-
-        return batch_acc, batch_train_loss
-    
+        return {
+            'acc' : train_correct / y.size(dim=0),
+            'loss': train_loss
+        }
 
     def aggregate(self):
         self.aggregate_clients()

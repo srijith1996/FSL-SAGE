@@ -1,8 +1,9 @@
 # ------------------------------------------------------------------------------
+import torch
 from utils.utils import calculate_load
 from algos import register_algorithm, aggregate_models, FLAlgorithm
 from models.aux_models import AuxiliaryModel
-import torch
+
 # ------------------------------------------------------------------------------
 @register_algorithm("cse_fsl")
 class CSEFSL(FLAlgorithm):
@@ -18,9 +19,7 @@ class CSEFSL(FLAlgorithm):
         return self.server.model(self.aggregated_client(x))
 
     def client_step(self, rd_cl_ep_it, x, y):
-        train_correct = 0
-        train_loss = []
-    
+
         t, i, j, k = rd_cl_ep_it       # (round, client, epoch, iter)
 
         self.clients[i].optimizer.zero_grad()
@@ -35,6 +34,15 @@ class CSEFSL(FLAlgorithm):
         out = self.clients[i].auxiliary_model.forward_inner(local_smashed_data) 
         loss = self.criterion(out, y)
         loss.backward()
+
+        ret_dict = dict()
+        with torch.no_grad():
+            local_loss = loss.item()
+            _, predicted = torch.max(out.data, 1)
+            local_correct = predicted.eq(y.view_as(predicted)).sum().item()
+            ret_dict['l_loss'] = local_loss
+            ret_dict['l_acc'] = local_correct / y.size(dim=0)
+
         self.clients[i].auxiliary_model.optimizer.step()
         splitting_output.backward(local_smashed_data.grad)
         self.clients[i].optimizer.step()
@@ -48,20 +56,17 @@ class CSEFSL(FLAlgorithm):
             out = self.server.model(smashed_data)
             s_loss = self.criterion(out, y)
 
-            
             with torch.no_grad():
-                train_loss.append(s_loss.item())
+                global_loss = s_loss.item()
                 _, predicted = torch.max(out.data, 1)
-                train_correct += predicted.eq(y.view_as(predicted)).sum().item()
-
+                global_correct = predicted.eq(y.view_as(predicted)).sum().item()
+                ret_dict['g_loss'] = global_loss
+                ret_dict['g_acc'] = global_correct / y.size(dim=0)
 
             s_loss.backward()
             self.server.optimizer.step()
 
-        batch_acc = train_correct / y.size(dim=0)
-        batch_train_loss = sum(train_loss) / len(train_loss)
-
-        return batch_acc, batch_train_loss
+        return ret_dict
 
     def aggregate(self):
         self.aggregate_clients()
