@@ -1,5 +1,13 @@
-*.pyc
+# special folders
 saves/*
 datas/*
+backup/*
+results/*
+pretrained/*
+plots/*
+.vscode/*
+
+# output files
+*.pyc
 .ipynb_checkpoints
 __pycache__
