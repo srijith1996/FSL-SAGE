@@ -8,9 +8,20 @@ client:
   batch_size : 128
   lr         : 0.01
   options:
-
+  optimizer:
+    name: adam
+    options:
+      lr          : 0.001
+      weight_decay: 0.0001
+      betas       : [0.9, 0.999]
 
 server:
   lr : 0.01
   options:
     num_classes : 1000
+  optimizer:
+    name: adam
+    options:
+      lr          : 0.001
+      weight_decay: 0.0001
+      betas       : [0.9, 0.999]

@@ -3,7 +3,7 @@ defaults:
   - model     : simple_conv
   - algorithm : fsl_sage
   - optional dataset_model : ${dataset}_${model}
-  - optional dataset_model_algorithm : ${dataset}-${model}-${algorithm}
+  - optional dataset_model_algorithm : ${dataset}_${model}_${algorithm}
 
   - _self_  
   - override hydra/hydra_logging: disabled  
@@ -16,10 +16,10 @@ seed   : 200
 device : cuda
 use_64bit: false
 
-rounds      : 300
+rounds      : 200
 num_clients : 10
 agg_factor  : auto
-checkpoint_interval : 1 #1
+checkpoint_interval : 5
 
 comm_threshold_mb : 204800
 

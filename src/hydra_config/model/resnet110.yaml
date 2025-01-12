@@ -1,7 +1,7 @@
 defaults:
-  - auxiliary: resnet110_cifar1100
+  - auxiliary: resnet110
 
-name: resnet110_cifar100
+name: resnet110
 
 client:
   epoch      : 20

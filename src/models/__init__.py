@@ -65,6 +65,15 @@ def config_optimizer(params, cfg):
     return optim(params, **cfg.options)
 
 # ------------------------------------------------------------------------------
+def config_lr_scheduler(optimizer, cfg):
+    if cfg.name == 'multistep_lr':
+        sched = torch.optim.lr_scheduler.MultiStepLR
+    else:
+        raise Exception(f"LR Scheduler {cfg.name} is not configured")
+
+    return sched(optimizer, **cfg.options)
+
+# ------------------------------------------------------------------------------
 class Client():
     def __init__(self,
         id, train_loader, client, auxiliary, cfg, device='cpu'
@@ -78,11 +87,10 @@ class Client():
         )
         self.optimizer_options = cfg.optimizer
 
-        self.lr_scheduler = None
-        if "lr_scheduler" in cfg and cfg.lr_scheduler:
-            self.lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=cfg.lr_scheduler.milestones)
-        #self.optimizer = Adam(self.model.parameters(), lr=cfg.lr, betas=tuple(cfg.betas))       
-        
+        self.lr_scheduler = config_lr_scheduler(
+            self.optimizer, cfg.lr_scheduler
+        ) if "lr_scheduler" in cfg and cfg.lr_scheduler else None
+
         self.train_loader = train_loader
         self.epochs = cfg.epoch
         self.dataset_size = len(self.train_loader) * cfg.batch_size 
@@ -99,9 +107,9 @@ class Server():
         )
         self.optimizer_options = cfg.optimizer
 
-        self.lr_scheduler = None
-        if "lr_scheduler" in cfg and cfg.lr_scheduler:
-            self.lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(self.optimizer, milestones=cfg.lr_scheduler.milestones)
+        self.lr_scheduler = config_lr_scheduler(
+            self.optimizer, cfg.lr_scheduler
+        ) if "lr_scheduler" in cfg and cfg.lr_scheduler else None
 
 # -----------------------------------------------------------------------------
 # Automatically import any Python files in the models/ directory
