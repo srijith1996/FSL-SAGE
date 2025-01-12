@@ -5,6 +5,7 @@ backup/*
 results/*
 pretrained/*
 plots/*
+ARCHIVE/*
 .vscode/*
 
 # output files
