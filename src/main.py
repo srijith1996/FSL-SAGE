@@ -168,11 +168,10 @@ def main(cfg: DictConfig):
     )
 
     save_res = {
-        'train_loss' : results.train_loss,
-        'train_acc' : results.train_acc,
         'test_loss' : results.loss,
         'test_acc'  : results.accuracy,
-        'comm_load' : results.comm_load
+        'comm_load' : results.comm_load,
+        **results.train_metrics
     }
 
     # save models and results
