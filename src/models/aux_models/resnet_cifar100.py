@@ -57,13 +57,13 @@ class ResNetAuxiliary(aux_models.GradScalarAuxiliaryModel):
         return F.log_softmax(self._forward_imp(x), dim =1)
 
 
-@register_auxiliary_model("resnet56_cifar100", disable_check=True)
+@register_auxiliary_model("resnet56", disable_check=True)
 def resnet56_sl_aux(server, layers = [9, 9, 9], in_planes : int=512, weights: Optional[Any] = None, progress: bool = True, num_classes: int = 100, device='cpu', **kwargs: Any
 ):
     if layers is None: layers = [9, 9, 9]
     return ResNetAuxiliary(server, BasicBlock, layers, in_planes, num_classes=num_classes, device=device, **kwargs)
 
-@register_auxiliary_model("resnet110_cifar100", disable_check=True)
+@register_auxiliary_model("resnet110", disable_check=True)
 def resnet110_sl_aux(server, layers = [18, 18, 18], in_planes : int=512, weights: Optional[Any] = None, progress: bool = True, num_classes: int = 100, device='cpu', **kwargs: Any
 ):
     if layers is None: layers = [18, 18, 18]
