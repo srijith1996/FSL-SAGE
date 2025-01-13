@@ -160,7 +160,7 @@ def main(cfg: DictConfig):
     server, client_list, test_loader = setup_server_and_clients(cfg)
     checkpointer = utils.Checkpointer(
         'accuracy', metric_obj='max', save_dir=cfg.save_path
-    )
+    ) if cfg.save else None
 
     results = run_fl_algorithm(
         cfg, server, client_list, test_loader, checkpointer,
