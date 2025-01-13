@@ -63,18 +63,18 @@ def get_path(cfg, exp_cfg, key_name, path):
 
 # -----------------------------------------------------------------------------
 def accuracy_plot(
-    save_dicts, metrics, metric_names, test_ids,
+    save_dicts, metrics, metric_names, test_ids, metric_minimize,
     x_comm_load=False, plots_dir='../plots', legend=True,
-    x_axis_rnds_lim=None
+    x_axis_rnds_lim=None, mark_at_metric=None
 ):
-    for metric, metric_name in zip(metrics, metric_names):
+    for n, (metric, metric_name) in enumerate(zip(metrics, metric_names)):
         fig_size = pu.get_fig_size(9, 7)
         fig = plt.figure(figsize=fig_size)
 
         ax = fig.add_subplot(111)
         key_names = []
         handles = []
-
+        plot_colors = []
         for i, (k, v) in enumerate(save_dicts.items()):
             if i in test_ids:
                 x_lim = len(v[metric])
@@ -87,11 +87,57 @@ def accuracy_plot(
 
                 label = k if legend != 'names_only' else None
                 h, = ax.plot(x_, v[metric][:x_lim], label=label, lw=pu.plot_lw())
+                plot_colors.append(h.get_color())
                 key_name_only = k[:k.index('(')].strip() if '(' in k else k
 
                 if key_name_only not in key_names:
                     key_names.append(key_name_only)
                     handles.append(h)
+
+        # plot horizontal and vertical lines indicating where each algorithm
+        # attains chosen accuracy
+        if mark_at_metric is not None:
+            assert len(mark_at_metric) == len(metrics), \
+                "`mark_at_metric` should have same length as metrics"
+
+            assert len(metric_minimize) == len(metrics), \
+                "`metric_minimize` should have same length as metrics"
+
+            xlims = ax.get_xlim()
+            ylims = ax.get_ylim()
+            ax.plot(
+                xlims, [mark_at_metric[n]]*2, linestyle='dashed', color='gray',
+                linewidth=1.0, alpha=0.8
+            )
+
+            for i, (k, v) in enumerate(save_dicts.items()):
+                if not i in test_ids:
+                    continue
+
+                metric_arr = np.array(v[metric][:x_lim])
+                cond = (metric_arr <= mark_at_metric[n]) if metric_minimize[n] \
+                    else (metric_arr >= mark_at_metric[n])
+                mark_rnd_alg = np.argwhere(cond)[0][0]
+                
+                x_alg = v['comm_load'][mark_rnd_alg] / (1024**3) \
+                    if x_comm_load else mark_rnd_alg
+                
+                # get 
+                ax.plot(
+                    [x_alg]*2, [ylims[0], mark_at_metric[n]],
+                    color=plot_colors[i], linestyle='dashed', linewidth=1.0,
+                    alpha=0.8
+                )
+                ax.text(
+                    x_alg + 1, mark_at_metric[n] - 0.2,
+                    f'{x_alg:.2f}GB' if x_comm_load else f'{x_alg:d}',
+                    color=plot_colors[i], rotation=90, size=6, alpha=1.0,
+                    weight='bold'
+                )
+
+            # restore original plot limits
+            ax.set_xlim(xlims)
+            ax.set_ylim(ylims)
 
         ax.set_ylabel(metric_name)
         if x_comm_load:
@@ -105,7 +151,10 @@ def accuracy_plot(
             ax.legend(handles, key_names)
         elif legend:
             ax.legend(loc='lower right')
-        ax.grid(True, which='both', axis='both')
+        ax.grid(
+            True, which='both', axis='both', linestyle='dotted', linewidth=0.5,
+            color='gray', alpha=0.5
+        )
         plt.tight_layout()
         fpostfix = '_comm_load' if x_comm_load else ''
         fig.savefig(os.path.join(plots_dir, f'{metric}{fpostfix}.eps'))
@@ -115,10 +164,20 @@ def accuracy_plot(
 def metrics_vs_dirichlet_alpha(
     save_dicts: dict, metrics: List[str], metric_names: List[str],
     test_ids: List[int], metric_minimize: List[Union[bool, None]],
-    align_at: str='round', plots_dir='../plots/default'
+    align_at: str='round', align_at_val: float=None,
+    plots_dir='../plots/default'
 ):
-    '''
-    save_dicts should be a nested dict in the form:
+    '''Plot specified metrics vs. Dirichlet alpha.
+
+    Plots the specified metrics in `metric_names` with respect to the parameter
+    alpha of a Dirichlet distribution.  For each metric, the minimum, maximum or
+    the last value upto the round determined by `align_at` and `align_at_val`,
+    are plotted.
+
+    Params
+    ------
+    save_dicts - dict
+        should be a nested dict in the form:
         {
             '<alg_name1>' : {
                 <alpha_val1> : json_dict,
@@ -130,28 +189,77 @@ def metrics_vs_dirichlet_alpha(
                 <alpha_val2> : json_dict,
                 ...
             }
-        },
+        }
+        where the `json_dict` corresponds to the run metrics as a dictionary
+        with keys as metric names and values as a list of metric value collected
+        at each communication round.  One of the keys in the `json_dict`s must be
+        'comm_load'.
+
+    metrics - List[str]
+        list of metric key names which match the keys in the above `json_dict`s.
+
+    metric_names - List[str]
+        list of full metric names corresponding to the entries in metrics above.
+        This is used for the y-label of the plots.
+
+    test_ids - List[int]
+        The `alg_names` in the save_dict indexed by `test_ids` will be plotted.
+
+    metric_minimize - List of {True, False, None} values
+        Indicates whether the 'best' metric is obtained by minimizing or
+        maximizing the list of metric values in the `json_dict`.  If the entry
+        in `metric_minimize` corresponding to `metrics` is None, the last entry
+        of the aligned metric list is picked.
+
+    align_at - optional, one of {'round', 'comm_load'}
+        Indicates whether to use the number of rounds or the communication load
+        spent, as the basis of comparing different algorithms.
+
+    align_at_val - optional, int or float
+        Behaviour depends on the value of `align_at`...
+          - align_at == 'round':
+            -- align_at_val is None: pick min, max and final values upto the
+               last round of each algorithm.
+            -- align_at_val == x   : pick the min, max and final values upto the
+               `x^{th}` round of each algorithm.
+          - align_at == 'comm_load':
+            -- align_at_val is None: pick min, max and final values upto the
+               minimum last communication load value across all algorithms.  For
+               e.g., if fedavg consumes `2a GB` and fsl_sage consumes `a GB`,
+               then the align point is taken at `a GB`.
+            -- align_at_val == a   : pick the min, max and final values upto the
+               `a GB` point of the communication load for each algorithm.
+
+    plots_dir - Save `.eps` and `.png` plots for this experiment at this
+        location.
         
     '''
+    
     os.makedirs(plots_dir, exist_ok=True)
-
     if metric_minimize is None: metric_minimize = [None] * len(metrics)
 
     align_idx = []
     if align_at == 'comm_load':
-        min_comm_load = min([
+        align_comm_load = min([
             min([v['comm_load'][-1] for v in alg_runs.values()]) \
                 for alg_runs in save_dicts.values()
-        ])
+        ]) if align_at_val is None else align_at_val * (1024**3)
         align_idx = [[
-            (np.array(v['comm_load']).searchsorted(min_comm_load, side='right') - 1) \
+            (np.array(v['comm_load']).searchsorted(
+                align_comm_load, side='right') - 1) \
                 for v in alg_runs.values()
             ] for alg_runs in save_dicts.values()
         ]
     elif align_at == 'round':
-        align_idx = [[len(v['comm_load'])-1 for v in alg_runs.values()] \
-            for alg_runs in save_dicts.values()
-        ]
+        if align_at_val is None:
+            align_idx = [[
+                    len(v['comm_load'])-1 for v in alg_runs.values()
+                ] for alg_runs in save_dicts.values()
+            ]
+        else:
+            align_idx = [[align_at_val for _ in alg_runs.values()] \
+                for alg_runs in save_dicts.values()
+            ]
     else:
         raise Exception(
             f"Unknown value `{align_at}` passed to `align_at`; expected `round` or `comm_load`."
@@ -194,18 +302,21 @@ def metrics_vs_dirichlet_alpha(
         
         ax.set_axisbelow(True)
         ax.set_xlabel(r"$\alpha$")
-        ylabel = f'{metric_name} @ ${min_comm_load/(1024**3):.2f}$ GiB' \
-            if align_at == 'comm_load' else metric_name
+        ylabel = f'{metric_name} @ ${align_comm_load/(1024**3):.2f}$ GiB' \
+            if align_at == 'comm_load' else f'{metric_name}'
         ax.set_ylabel(ylabel)
         ax.legend(loc='lower right')
         ax.grid(True, which='both', axis='both')
         plt.tight_layout()
         met_type = 'best' if metric_min is not None else 'final'
         fig.savefig(os.path.join(
-            plots_dir, f'{metric}_{met_type}_{align_at}_vs_dirichlet_alpha.png'
+            plots_dir, f'{metric}_{met_type}_{align_at}' +
+            f'_{align_at_val}_vs_dirichlet_alpha.png'
         ))
         fig.savefig(os.path.join(
-            plots_dir, f'{metric}_{met_type}_{align_at}_vs_dirichlet_alpha.eps'
+            plots_dir, f"{metric}_{met_type}_{align_at}" +
+            f"_{align_at_val if align_at_val else 'default'}" +
+            f"_vs_dirichlet_alpha.eps"
         ))
 
 # -----------------------------------------------------------------------------
@@ -315,10 +426,10 @@ def metrics_vs_comm_load_scatter(
         ax.set_axisbelow(True)
         ax.set_xlabel("Communication Load (GB)")
         ax.set_ylabel(metric_name)
-        ax.set_xlim([ax.get_xlim()[0], ax.get_xlim()[1] + 50])
+        ax.set_xlim([ax.get_xlim()[0], ax.get_xlim()[1] + 0])
         # produce a legend with the unique colors from the scatter
         legend1 = ax.legend(
-            handles, labels, loc="lower right", handletextpad=0.0
+            handles, labels, loc="lower left", handletextpad=0.0
         )
         ax.add_artist(legend1)
 
@@ -328,7 +439,7 @@ def metrics_vs_comm_load_scatter(
             func=s_func_inv
         )
         legend2 = ax.legend(
-            handles, labels, loc="upper right", handletextpad=0.0, title=r'$\alpha$'
+            handles, labels, loc="lower right", handletextpad=0.0, title=r'$\alpha$', frameon=False
         )
         
         #ax.legend(loc='lower center')
@@ -370,55 +481,77 @@ def misc_exps(config):
 
         setup()
 
-        if exp['type'] == 'dirichlet_alpha':
-            print(f"\033[92mPlotting accuracy vs dirichlet alpha @ {exp_name}\033[0m")
+        print(exp['type'])
+        for exp_type in exp['type'].split(','):
+            if exp_type == 'dirichlet_alpha':
+                print(f"\033[92mPlotting accuracy vs dirichlet alpha @ {exp_name}\033[0m")
 
-            save_dict = {
-                k: {
-                    k_: get_json_file(__get_path(__strip_brackets(k), v_))
-                    for k_, v_ in v.items()
-                } for k, v in exp['save_locs'].items()
-            }
-            #print(save_dict)
+                save_dict = {
+                    k: {
+                        k_: get_json_file(__get_path(__strip_brackets(k), v_))
+                        for k_, v_ in v.items()
+                    } for k, v in exp['save_locs'].items()
+                }
+                #print(save_dict)
 
-            metrics_vs_dirichlet_alpha(
-                save_dict, ["test_loss", "test_acc"],
-                ["Test Loss", "Test Accuracy"], test_ids=exp['test_ids'],
-                metric_minimize=[True, False], align_at='comm_load',
-                plots_dir=os.path.join(config['plots_dir'], exp_name)
-            )
+                metrics_vs_dirichlet_alpha(
+                    save_dict, ["test_loss", "test_acc"],
+                    ["Test Loss", "Test Accuracy"], test_ids=exp['test_ids'],
+                    metric_minimize=[True, False], align_at='comm_load',
+                    align_at_val=80.0,
+                    plots_dir=os.path.join(config['plots_dir'], exp_name)
+                )
 
-            metrics_vs_dirichlet_alpha(
-                save_dict, ["test_loss", "test_acc"],
-                ["Test Loss", "Test Accuracy"], test_ids=exp['test_ids'],
-                metric_minimize=[None, None], align_at='comm_load',
-                plots_dir=os.path.join(config['plots_dir'], exp_name)
-            )
+                metrics_vs_dirichlet_alpha(
+                    save_dict, ["test_loss", "test_acc"],
+                    ["Test Loss", "Test Accuracy"], test_ids=exp['test_ids'],
+                    metric_minimize=[True, False], align_at='comm_load',
+                    align_at_val=50.0,
+                    plots_dir=os.path.join(config['plots_dir'], exp_name)
+                )
 
-        if exp['type'] == 'metric_comm_scatter':
-            print(f"\033[92mPlotting best metric vals vs best communication load @ {exp_name}\033[0m")
+                metrics_vs_dirichlet_alpha(
+                    save_dict, ["test_loss", "test_acc"],
+                    ["Test Loss", "Test Accuracy"], test_ids=exp['test_ids'],
+                    metric_minimize=[True, False], align_at='round',
+                    align_at_val=200,
+                    plots_dir=os.path.join(config['plots_dir'], exp_name)
+                )
 
-            save_dict = {
-                k: {
-                    k_: get_json_file(__get_path(__strip_brackets(k), v_))
-                    for k_, v_ in v.items()
-                } for k, v in exp['save_locs'].items()
-            }
-            #print(save_dict)
+                #metrics_vs_dirichlet_alpha(
+                #    save_dict, ["test_loss", "test_acc"],
+                #    ["Test Loss", "Test Accuracy"], test_ids=exp['test_ids'],
+                #    metric_minimize=[None, None], align_at='round',
+                #    plots_dir=os.path.join(config['plots_dir'], exp_name)
+                #)
 
-            metrics_vs_comm_load_scatter(
-                save_dict, ["test_loss", "test_acc"],
-                ["Test Loss", "Test Accuracy"], test_ids=exp['test_ids'],
-                metric_minimize=[True, False],
-                plots_dir=os.path.join(config['plots_dir'], exp_name)
-            )
+            elif exp_type == 'metric_comm_scatter':
+                print(f"\033[92mPlotting best metric vals vs best communication load @ {exp_name}\033[0m")
 
-            metrics_vs_comm_load_scatter(
-                save_dict, ["test_loss", "test_acc"],
-                ["Test Loss", "Test Accuracy"], test_ids=exp['test_ids'],
-                metric_minimize=[None, None],
-                plots_dir=os.path.join(config['plots_dir'], exp_name)
-            )
+                save_dict = {
+                    k: {
+                        k_: get_json_file(__get_path(__strip_brackets(k), v_))
+                        for k_, v_ in v.items()
+                    } for k, v in exp['save_locs'].items()
+                }
+                #print(save_dict)
+
+                metrics_vs_comm_load_scatter(
+                    save_dict, ["test_loss", "test_acc"],
+                    ["Test Loss", "Test Accuracy"], test_ids=exp['test_ids'],
+                    metric_minimize=[True, False],
+                    plots_dir=os.path.join(config['plots_dir'], exp_name)
+                )
+
+                metrics_vs_comm_load_scatter(
+                    save_dict, ["test_loss", "test_acc"],
+                    ["Test Loss", "Test Accuracy"], test_ids=exp['test_ids'],
+                    metric_minimize=[None, None],
+                    plots_dir=os.path.join(config['plots_dir'], exp_name)
+                )
+
+            else:
+                raise Exception(f"Unknown experiment type {exp_type}")
 
 # -----------------------------------------------------------------------------
 def main():
@@ -461,17 +594,20 @@ def main():
             accuracy_plot(
                 results, ['test_acc', 'test_loss'],
                 ['Test Accuracy', 'Test Loss'],
-                test_ids=exp['test_ids'], plots_dir=plot_dir,
+                test_ids=exp['test_ids'],
+                metric_minimize=[False, True], 
+                plots_dir=plot_dir,
                 legend=exp['legend'] if 'legend' in exp else True,
-                x_axis_rnds_lim=x_axis_rnds_lim
+                x_axis_rnds_lim=x_axis_rnds_lim, mark_at_metric=[0.80, 0.65]
             )
             accuracy_plot(
                 results, ['test_acc', 'test_loss'],
                 ['Test Accuracy', 'Test Loss'],
                 test_ids=exp['test_ids'], x_comm_load=True,
+                metric_minimize=[False, True], 
                 plots_dir=plot_dir,
                 legend=exp['legend'] if 'legend' in exp else True,
-                x_axis_rnds_lim=x_axis_rnds_lim
+                x_axis_rnds_lim=x_axis_rnds_lim, mark_at_metric=[0.80, 0.65]
             )
 
         # table
