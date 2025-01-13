@@ -56,14 +56,14 @@ def get_dataloaders(cfg) -> Tuple[List[DataLoader], DataLoader]:
         trainloaders.append(
             DataLoader(
                 dss.DatasetSplit(trainSet, train_set),
-                batch_size=cfg.model.client.batch_size,
-                shuffle=True, num_workers=4, pin_memory=True, 
+                batch_size=cfg.model.client.batch_size, shuffle=True,
+                num_workers=cfg.num_workers, pin_memory=True
             )
         )
     
     testloader = DataLoader(
         testSet, batch_size=cfg.model.client.batch_size, shuffle=False,
-        num_workers=4, pin_memory=True,
+        num_workers=cfg.num_workers, pin_memory=True
     )
 
     return trainloaders, testloader

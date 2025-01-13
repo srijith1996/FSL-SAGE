@@ -15,13 +15,14 @@ save_dir_prefix : ../saves
 seed   : 200
 device : cuda
 use_64bit: false
+num_workers : 1
 
 rounds      : 200
 num_clients : 10
 agg_factor  : auto
 checkpoint_interval : 5
 
-comm_threshold_mb : 204800
+comm_threshold_mb : 204800  # corresponds to 200 GiB
 
 # to prevent logging and working directory creation by hydra
 hydra:  
