@@ -66,6 +66,7 @@ def config_optimizer(params, cfg):
 
 # ------------------------------------------------------------------------------
 def config_lr_scheduler(optimizer, cfg):
+    if cfg is None: return None
     if cfg.name == 'multistep_lr':
         sched = torch.optim.lr_scheduler.MultiStepLR
     else:
@@ -90,6 +91,8 @@ class Client():
         self.lr_scheduler = config_lr_scheduler(
             self.optimizer, cfg.lr_scheduler
         ) if "lr_scheduler" in cfg and cfg.lr_scheduler else None
+        self.lr_scheduler_options = cfg.lr_scheduler \
+            if "lr_scheduler" in cfg else None
 
         self.train_loader = train_loader
         self.epochs = cfg.epoch

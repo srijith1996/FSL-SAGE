@@ -5,7 +5,7 @@ import torch
 from torch import optim
 
 from algos import register_algorithm, aggregate_models, FLAlgorithm
-from models import config_optimizer
+from models import config_optimizer, config_lr_scheduler
 
 # ------------------------------------------------------------------------------
 @register_algorithm("fed_avg")
@@ -21,6 +21,9 @@ class FedAvg(FLAlgorithm):
             c.model = nn.Sequential(c.model, self.server.model)
             c.optimizer = config_optimizer(
                 c.model.parameters(), c.optimizer_options
+            )
+            c.lr_scheduler = config_lr_scheduler(
+                c.optimizer, c.lr_scheduler_options
             )
 
     def full_model(self, x):
