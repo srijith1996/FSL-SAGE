@@ -122,11 +122,19 @@ def setup_server_and_clients(
             c.auxiliary_model.to(global_torch_device)
 
     # compute sizes of different models
-    mod_sizes = utils.compute_model_size(
+    mod_sizes, param_counts = utils.compute_model_size(
         client_list[0].model, server.model, client_list[0].auxiliary_model
     )
+    param_counts = utils.process_counts(param_counts)
     logging.info(
-        f"Model size - Client = {mod_sizes[0]:.3f}MiB, Server = {mod_sizes[1]:.3f}MiB, Auxiliary = {mod_sizes[2]:.3f}MiB."
+        f"Model size : Client = {mod_sizes[0]:.3f}MiB, " +
+        f"Server = {mod_sizes[1]:.3f}MiB, " +
+        f"Auxiliary = {mod_sizes[2]:.3f}MiB."
+    )
+    logging.info(
+        f"# parameters : Client = {param_counts[0]}, " +
+        f"Server = {param_counts[1]}, " +
+        f"Auxiliary = {param_counts[2]}."
     )
         
     return server, client_list, test_loader

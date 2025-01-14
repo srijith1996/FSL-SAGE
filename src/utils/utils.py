@@ -48,14 +48,32 @@ def load_model(model, path):
 
 def compute_model_size(*models):
     sizes = [0.0 for _ in models]
+    counts = [0 for _ in models]
     for i, m in enumerate(models):
         for p in m.parameters():
+            counts[i] += p.nelement()
             sizes[i] += p.nelement() * p.element_size()
         for p in m.buffers():
+            counts[i] += p.nelements()
             sizes[i] += p.nelement() * p.element_size()
         sizes[i] = sizes[i] / (1024 ** 2)
 
-    return sizes
+    return sizes, counts
+
+def process_counts(counts):
+    str_list = []
+    for i, c in enumerate(counts):
+        if c // int(1e12) > 0:
+            str_list[i] = f'{c / 1e12:.2f}T'
+        elif c // int(1e9) > 0:
+            str_list[i] = f'{c / 1e9:.2f}B'
+        elif c // int(1e6) > 0:
+            str_list[i] = f'{c / 1e6:.2f}M'
+        elif c // int(1e3) > 0:
+            str_list[i] = f'{c / 1e6:.2f}K'
+        else:
+            str_list[i] = f'{c:.2f}'
+    return str_list
 
 def sha256_of_yaml(yaml_dict):
     """Calculates the SHA-256 hash of a YAML dictionary."""
