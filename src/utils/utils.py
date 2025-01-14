@@ -54,7 +54,7 @@ def compute_model_size(*models):
             counts[i] += p.nelement()
             sizes[i] += p.nelement() * p.element_size()
         for p in m.buffers():
-            counts[i] += p.nelements()
+            counts[i] += p.nelement()
             sizes[i] += p.nelement() * p.element_size()
         sizes[i] = sizes[i] / (1024 ** 2)
 
@@ -64,15 +64,15 @@ def process_counts(counts):
     str_list = []
     for i, c in enumerate(counts):
         if c // int(1e12) > 0:
-            str_list[i] = f'{c / 1e12:.2f}T'
+            str_list.append(f'{c / 1e12:.1f}T')
         elif c // int(1e9) > 0:
-            str_list[i] = f'{c / 1e9:.2f}B'
+            str_list.append(f'{c / 1e9:.1f}B')
         elif c // int(1e6) > 0:
-            str_list[i] = f'{c / 1e6:.2f}M'
+            str_list.append(f'{c / 1e6:.1f}M')
         elif c // int(1e3) > 0:
-            str_list[i] = f'{c / 1e6:.2f}K'
+            str_list.append(f'{c / 1e3:.1f}K')
         else:
-            str_list[i] = f'{c:.2f}'
+            str_list.append(f'{c:d}')
     return str_list
 
 def sha256_of_yaml(yaml_dict):

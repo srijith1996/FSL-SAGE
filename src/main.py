@@ -175,11 +175,15 @@ def main(cfg: DictConfig):
         global_torch_device
     )
 
+    train_metrics = {}
+    for met in results.train_metrics:
+        train_metrics.update(met)
+
     save_res = {
         'test_loss' : results.loss,
         'test_acc'  : results.accuracy,
         'comm_load' : results.comm_load,
-        **results.train_metrics
+        **train_metrics
     }
 
     # save models and results
