@@ -1,11 +1,12 @@
+# @package _global_
 defaults:
-  - auxiliary: resnet56
+  - imagenet_base
 
-name: resnet56
+rounds: 120
 
 client:
   epoch      : 1
-  batch_size : 128
+  batch_size : 256
   options:
   optimizer:
     name: sgd
@@ -14,10 +15,10 @@ client:
       weight_decay:  0.0001
       momentum : 0.9
   lr_scheduler:
-    name  : multistep_lr
+    name  : step_lr
     options:
-      milestones : [100, 150]
-
+      step_size : 30
+      gamma : 0.1
 server:
   options:
     num_classes : 100
@@ -30,6 +31,18 @@ server:
       momentum : 0.9
 
   lr_scheduler:
-    name  : multistep_lr
+    name  : step_lr
     options:
-      milestones : [100, 150]
+      step_size : 30
+      gamma : 0.1
+
+
+
+model:
+  auxiliary:
+    options:
+      num_classes: 1000
+
+  server:
+    options:
+      num_classes: 1000

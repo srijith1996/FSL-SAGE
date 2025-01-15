@@ -217,19 +217,19 @@ def resnet1202(num_classes=100):
     return ResNet(BasicBlock, [200, 200, 200], num_classes=num_classes)
 
 # ------------------------------------------------------------------------------
-def resnet56_sl_client(num_classes=100):
+def resnet56_sl_client(num_classes=100, **kwargs):
     return ResNetClient(BasicBlock, [9, 9, 9], num_classes=num_classes)
 
-def resnet56_sl_server(num_classes=100):
+def resnet56_sl_server(num_classes=100, **kwargs):
     return ResNetServer(BasicBlock, [9, 9, 9], num_classes=num_classes)
 
 register_client_server_pair('resnet56', resnet56_sl_client, resnet56_sl_server)
 
 # ------------------------------------------------------------------------------
-def resnet110_sl_client(num_classes=100):
+def resnet110_sl_client(num_classes=100, **kwargs):
     return ResNetClient(BasicBlock, [18, 18, 18], num_classes=num_classes)
 
-def resnet110_sl_server(num_classes=100):
+def resnet110_sl_server(num_classes=100, **kwargs):
     return ResNetServer(BasicBlock, [18, 18, 18], num_classes=num_classes)
 
 register_client_server_pair('resnet110', resnet110_sl_client, resnet110_sl_server)

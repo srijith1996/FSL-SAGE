@@ -1,16 +1,17 @@
+# @package _global_
 defaults:
-  - auxiliary: resnet56
+  - cifar100_base
 
-name: resnet56
+rounds: 300
 
 client:
   epoch      : 1
-  batch_size : 128
+  batch_size : 256
   options:
   optimizer:
-    name: sgd
+    name: adam
     options:
-      lr          : 0.1
+      lr          : 0.003
       weight_decay:  0.0001
       momentum : 0.9
   lr_scheduler:
@@ -23,9 +24,9 @@ server:
     num_classes : 100
 
   optimizer:
-    name: sgd
+    name: adam
     options:
-      lr          : 0.1
+      lr          : 0.003
       weight_decay: 0.0001
       momentum : 0.9
 
@@ -33,3 +34,4 @@ server:
     name  : multistep_lr
     options:
       milestones : [100, 150]
+

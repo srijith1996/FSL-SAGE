@@ -69,6 +69,8 @@ def config_lr_scheduler(optimizer, cfg):
     if cfg is None: return None
     if cfg.name == 'multistep_lr':
         sched = torch.optim.lr_scheduler.MultiStepLR
+    elif cfg.name == 'step_lr':
+        sched = torch.optim.lr_scheduler.StepLR
     else:
         raise Exception(f"LR Scheduler {cfg.name} is not configured")
 

@@ -1,8 +1,0 @@
-# @package _global_
-
-batch_size: 64
-
-model:
-  server:
-    options:
-      num_classes : 100

@@ -24,19 +24,22 @@ def get_dataset(cfg):
     # load configured dataset
     if cfg.name == 'cifar10':
         dataDir = '../datas/cifar'
+
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                     std=[0.229, 0.224, 0.225])
         
         #random.seed(10)
         ## define the image transform rule
         trainRule = transforms.Compose([
-            transforms.RandomCrop(24),
-            transforms.RandomHorizontalFlip(0.5),
-            transforms.ColorJitter(brightness=0.5, contrast=(0.2,1.8)),
+            transforms.RandomHorizontalFlip(),
+            transforms.RandomCrop(32, 4),
             transforms.ToTensor(),
-            transforms.Normalize(mean=(0.5,0.5,0.5), std=(0.5,0.5,0.5))])
+            normalize
+            ])
         testRule = transforms.Compose([
-            transforms.CenterCrop(24),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=(0.5,0.5,0.5), std=(0.5,0.5,0.5))])
+            transforms.ToTensor(), 
+            normalize
+            ])
 
         ## access to the dataset
         trainSet = datasets.CIFAR10(dataDir, train=True, download=True,
