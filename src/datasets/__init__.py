@@ -56,8 +56,12 @@ def get_dataset(cfg):
                     transforms.ToTensor(),
                     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])
 
-        trainSet = datasets.CIFAR100(dataDir, train=True, download=True, transform=train_transform)
-        testSet = datasets.CIFAR100(dataDir, train=False, download=True, transform=test_transform)
+        trainSet = datasets.CIFAR100(
+            dataDir, train=True, download=True, transform=train_transform
+        )
+        testSet = datasets.CIFAR100(
+            dataDir, train=False, download=True, transform=test_transform
+        )
 
     elif cfg.name == 'imagenet':
         dataDir = '../datas/imagenet'
