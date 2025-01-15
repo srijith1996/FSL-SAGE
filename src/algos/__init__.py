@@ -84,6 +84,27 @@ class FLAlgorithm(ABC):
     def client_step(self, x, y):
         pass
 
+    def special_models_train_mode(self, t):
+        pass
+
+    def special_models_eval_mode(self):
+        pass
+
+    def train_mode(self, t):
+        for c in self.clients: c.model.train()
+        self.server.model.train()
+
+        # the condition is required because the aggregate models are not defined
+        # at the zero'th round
+        if t > 0: self.aggregated_client.train()
+        self.special_models_train_mode(t)
+
+    def eval_mode(self):
+        for c in self.clients: c.model.eval()
+        self.server.model.eval()
+        self.aggregated_client.eval()
+        self.special_models_eval_mode()
+
     def aggregate_clients(self):
         self.aggregated_client = aggregate_models(
             [c.model for c in self.clients], self.agg_factor, self.device
@@ -100,9 +121,10 @@ class FLAlgorithm(ABC):
     def evaluate(self):
         test_correct = 0
         test_loss = []
+        self.eval_mode()
         with torch.no_grad():
             for x, y in tqdm(
-                self.test_loader, desc="Batch", unit='batch', leave=False
+                self.test_loader, desc="Test Batch", unit='batch', leave=False
             ):
                 x = x.to(self.device).double() if self.use_64bit \
                     else x.to(self.device).float()
@@ -201,6 +223,8 @@ def run_fl_algorithm(
             range(cfg.rounds), unit="rd", desc="Round", leave=False,
             colour='green'
         ):
+            # set all models to train mode and train
+            alg.train_mode(t)
             with tqdm(
                 range(cfg.num_clients), unit="cl", desc="Client", leave=False,
                 colour='blue'
@@ -211,24 +235,26 @@ def run_fl_algorithm(
                         range(clients[i].epochs), unit="ep", desc="Local epoch",
                         leave=False
                     ):
-                        for k, (x, y) in enumerate(
-                            tqdm(clients[i].train_loader, unit="batch",
-                            desc="Local batch", leave=False)
-                        ):
-                            x = x.to(torch_device).double() \
-                                if cfg.use_64bit else x.to(torch_device).float()
-                            y = y.to(torch_device).long()
+                        with tqdm(
+                            clients[i].train_loader, unit="batch",
+                            desc="Local batch", leave=False
+                        ) as pbar_local:
+                            for k, (x, y) in enumerate(pbar_local):
+                                x = x.to(torch_device).double() \
+                                    if cfg.use_64bit else x.to(torch_device).float()
+                                y = y.to(torch_device).long()
 
-                            tr_metrics = alg.client_step(
-                                (t, i, j, k), x, y
-                            )
-                            if j == 0 and k == 0:
-                                tr_mets = {
-                                    k: [v] for k, v in tr_metrics.items()
-                                }
-                            else:
-                                [tr_mets[k].append(v) for k, v in
-                                tr_metrics.items()]
+                                tr_metrics = alg.client_step(
+                                    (t, i, j, k), x, y
+                                )
+                                pbar_local.set_postfix(**tr_metrics)
+                                if j == 0 and k == 0:
+                                    tr_mets = {
+                                        k: [v] for k, v in tr_metrics.items()
+                                    }
+                                else:
+                                    [tr_mets[k].append(v) for k, v in
+                                    tr_metrics.items()]
 
                     # compute mean of metrics
                     tr_mets = {k: np.mean(v) for k, v in tr_mets.items()}
@@ -253,6 +279,8 @@ def run_fl_algorithm(
             alg.aggregate()
             comm_load.append(alg.comm_load)
 
+            # set models to eval mode and evaluate
+            alg.eval_mode()
             acc_, loss_ = alg.evaluate()
             test_acc.append(acc_)
             test_loss.append(loss_)

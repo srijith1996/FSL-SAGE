@@ -18,6 +18,14 @@ class CSEFSL(FLAlgorithm):
     def full_model(self, x):
         return self.server.model(self.aggregated_client(x))
 
+    def special_models_train_mode(self, t):
+        if t > 0: self.aggregated_auxiliary.train()
+        for c in self.clients: c.auxiliary_model.train()
+
+    def special_models_eval_mode(self):
+        self.aggregated_auxiliary.eval()
+        for c in self.clients: c.auxiliary_model.eval()
+
     def client_step(self, rd_cl_ep_it, x, y):
 
         t, i, j, k = rd_cl_ep_it       # (round, client, epoch, iter)

@@ -108,6 +108,12 @@ class SplitFedv1(FLAlgorithm):
     def full_model(self, x):
         return self.aggregated_server(self.aggregated_client(x))
 
+    def special_models_train_mode(self, t):
+        if t > 0: self.aggregated_server.train()
+
+    def special_models_eval_mode(self):
+        self.aggregated_server.eval()
+
     def client_step(self, rd_cl_ep_it, x, y):
         t, i, j, k = rd_cl_ep_it
 
