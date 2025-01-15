@@ -233,4 +233,14 @@ def resnet110_sl_server(num_classes=100):
     return ResNetServer(BasicBlock, [18, 18, 18], num_classes=num_classes)
 
 register_client_server_pair('resnet110', resnet110_sl_client, resnet110_sl_server)
+
+# ------------------------------------------------------------------------------
+def resnet1202_sl_client(num_classes=100):
+    return ResNetClient(BasicBlock, [200, 200, 200], num_classes=num_classes)
+
+def resnet1202_sl_server(num_classes=100):
+    return ResNetServer(BasicBlock, [200, 200, 200], num_classes=num_classes)
+
+register_client_server_pair('resnet1202', resnet1202_sl_client, resnet1202_sl_server)
+
 # ------------------------------------------------------------------------------
