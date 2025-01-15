@@ -58,14 +58,26 @@ class ResNetAuxiliary(aux_models.GradScalarAuxiliaryModel):
 
 
 @register_auxiliary_model("resnet56", disable_check=True)
-def resnet56_sl_aux(server, layers = [9, 9, 9], in_planes : int=512, weights: Optional[Any] = None, progress: bool = True, num_classes: int = 100, device='cpu', **kwargs: Any
+def resnet56_sl_aux(
+    server, layers = [9, 9, 9], in_planes : int=512, weights: Optional[Any] =
+    None, progress: bool = True, num_classes: int = 100, device='cpu', **kwargs:
+    Any
 ):
     if layers is None: layers = [9, 9, 9]
-    return ResNetAuxiliary(server, BasicBlock, layers, in_planes, num_classes=num_classes, device=device, **kwargs)
+    return ResNetAuxiliary(
+        server, BasicBlock, layers, in_planes, num_classes=num_classes,
+        device=device, **kwargs
+    )
 
 @register_auxiliary_model("resnet110", disable_check=True)
-def resnet110_sl_aux(server, layers = [18, 18, 18], in_planes : int=512, weights: Optional[Any] = None, progress: bool = True, num_classes: int = 100, device='cpu', **kwargs: Any
+def resnet110_sl_aux(
+    server, layers = [18, 18, 18], in_planes : int=512, weights: Optional[Any] =
+    None, progress: bool = True, num_classes: int = 100, device='cpu', **kwargs:
+    Any
 ):
     if layers is None: layers = [18, 18, 18]
-    return ResNetAuxiliary(server, BasicBlock, layers, in_planes, num_classes=num_classes, device=device, **kwargs)
+    return ResNetAuxiliary(
+        server, BasicBlock, layers, in_planes, num_classes=num_classes,
+        device=device, **kwargs
+    )
 
