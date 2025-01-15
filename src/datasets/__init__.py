@@ -2,6 +2,7 @@
 from torch.utils.data import Dataset
 from torchvision import datasets, transforms
 
+import os
 from datasets import sample, femnist
 
 # -----------------------------------------------------------------------------
@@ -15,6 +16,12 @@ def get_dataset(cfg):
             userGroup:	The sample indexs of each client (dict.)
     '''
 
+    if 'imagenet' in cfg.name:
+        normalize = transforms.Normalize(
+            mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+        )
+
+    # load configured dataset
     if cfg.name == 'cifar10':
         dataDir = '../datas/cifar'
         
@@ -63,18 +70,44 @@ def get_dataset(cfg):
             dataDir, train=False, download=True, transform=test_transform
         )
 
-    elif cfg.name == 'imagenet':
-        dataDir = '../datas/imagenet'
+    elif cfg.name == 'tinyimagenet':
+        train_transform = transforms.Compose([
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            normalize,
+        ])
+        test_transform = transforms.Compose([
+            transforms.ToTensor(),
+            normalize,
+        ])
+        data_dir = '../datas/tinyimagenet/tiny-imagenet-200'
+        trainSet = datasets.ImageFolder(
+            os.path.join(data_dir, 'train'), train_transform
+        )
+        testSet = datasets.ImageFolder(
+            os.path.join(data_dir, 'test'), test_transform
+        )
 
-        transform = transforms.Compose([
-             transforms.Resize(256),
+    elif cfg.name == 'imagenet':
+        train_transform = transforms.Compose([
+            transforms.RandomResizedCrop(224),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            normalize,
+        ])
+        test_transform = transforms.Compose([
+            transforms.Resize(256),
             transforms.CenterCrop(224),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) #,
+            normalize,
         ])
-
-        trainSet = datasets.ImageFolder(root=dataDir + '/train', transform=transform)
-        testSet = datasets.ImageFolder(root=dataDir + '/val', transform=transform)
+        dataDir = '../datas/imagenet'
+        trainSet = datasets.ImageFolder(
+            os.path.join(dataDir, 'train'), transform=train_transform
+        )
+        testSet = datasets.ImageFolder(
+            os.path.join(dataDir, 'val'), transform=test_transform
+        )
 
     else:
         exit(f"[ERROR] Unrecognized dataset '{cfg.name}'.")

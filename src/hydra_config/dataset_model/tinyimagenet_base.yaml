@@ -1,0 +1,16 @@
+# @package _global_
+
+batch_size: 128
+
+model:
+  auxiliary:
+    options:
+      num_classes: 200
+
+  server:
+    options:
+      num_classes: 200
+
+  client:
+    options:
+      n_channels: 3
