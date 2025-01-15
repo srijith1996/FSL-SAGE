@@ -135,8 +135,6 @@ class NNGradScalarAuxiliaryModel(GradScalarAuxiliaryModel):
         )
         self.align_epochs = align_epochs
 
-        self.set_optimizer(align_step)
-
         for m in self.parameters():
             nn.init.normal_(m, mean=0., std=0.05)
             nn.init.normal_(m, mean=0., std=0.05)
@@ -162,7 +160,6 @@ class LinearGradScalarAuxiliaryModel(GradScalarAuxiliaryModel):
             in_features=n_input, out_features=n_output, bias=True
         )
         self.align_epochs = align_epochs
-        self.set_optimizer(align_step)
 
         self.apply(self._init_weights)
 

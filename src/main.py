@@ -105,11 +105,17 @@ def setup_server_and_clients(
     client_list = [
         Client(i, client_loaders[i],
             client_constructor(),
-            auxiliary_constructor(server=server, device=global_torch_device),
             cfg.model.client, device=global_torch_device
         )
         for i in range(cfg.num_clients)
     ]
+
+    # initialize auxiliary models
+    for c in client_list:
+        c.init_auxiliary(
+            auxiliary_constructor(server=server, device=global_torch_device),
+            cfg.model.auxiliary
+        )
 
     for c in client_list:
         c.model.load_state_dict(client_list[0].model.state_dict())

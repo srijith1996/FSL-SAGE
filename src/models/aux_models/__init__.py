@@ -148,8 +148,9 @@ class GradScalarAuxiliaryModel(AuxiliaryModel):
     def forward_inner(self, x):
         pass
 
-    def set_optimizer(self, align_step):
-        self.optimizer = optim.Adam(self.parameters(), lr=align_step)
+    def set_optimizer_lr_scheduler(self, optimizer, lr_scheduler=None):
+        self.optimizer = optimizer
+        self.lr_scheduler = lr_scheduler
 
     def align_loss(self, x, y, labels):
         aux_out = self.forward(x, labels)

@@ -77,7 +77,6 @@ class ResNetAuxiliary(aux_models.GradScalarAuxiliaryModel):
                     nn.init.constant_(m.bn2.weight, 0)  # type: ignore[arg-type]
 
         self.align_epochs = align_epochs
-        self.set_optimizer(align_step)
 
     def _make_layer(
         self,

@@ -79,26 +79,39 @@ def config_lr_scheduler(optimizer, cfg):
 # ------------------------------------------------------------------------------
 class Client():
     def __init__(self,
-        id, train_loader, client, auxiliary, cfg, device='cpu'
+        id, train_loader, client, cfg_model, device='cpu'
     ):
+        self.id = id
         self.model = client 
-        self.auxiliary_model = auxiliary
         self.criterion = nn.NLLLoss().to(device)
 
         self.optimizer = config_optimizer(
-            self.model.parameters(), cfg.optimizer
+            self.model.parameters(), cfg_model.optimizer
         )
-        self.optimizer_options = cfg.optimizer
+        self.optimizer_options = cfg_model.optimizer
 
         self.lr_scheduler = config_lr_scheduler(
-            self.optimizer, cfg.lr_scheduler
-        ) if "lr_scheduler" in cfg and cfg.lr_scheduler else None
-        self.lr_scheduler_options = cfg.lr_scheduler \
-            if "lr_scheduler" in cfg else None
+            self.optimizer, cfg_model.lr_scheduler
+        ) if "lr_scheduler" in cfg_model and cfg_model.lr_scheduler else None
+        self.lr_scheduler_options = cfg_model.lr_scheduler \
+            if "lr_scheduler" in cfg_model else None
 
         self.train_loader = train_loader
-        self.epochs = cfg.epoch
-        self.dataset_size = len(self.train_loader) * cfg.batch_size 
+        self.epochs = cfg_model.epoch
+        self.dataset_size = len(self.train_loader) * cfg_model.batch_size
+
+    def init_auxiliary(self, auxiliary, cfg_aux):
+        self.auxiliary_model = auxiliary
+
+        # optimizer and lr schedules for the auxiliary model
+        self.aux_optimizer = config_optimizer(
+                self.auxiliary_model.parameters, cfg_aux.optimizer
+            )
+        self.auxiliary_model.set_optimizer_lr_scheduler(
+            self.aux_optimizer, config_lr_scheduler(
+                self.aux_optimizer, cfg_aux.lr_scheduler
+            ) if 'lr_scheduler' in cfg_aux else None
+        )
 
 # -----------------------------------------------------------------------------
 class Server():

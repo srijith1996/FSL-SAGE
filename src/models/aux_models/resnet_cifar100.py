@@ -35,7 +35,6 @@ class ResNetAuxiliary(aux_models.GradScalarAuxiliaryModel):
 
         self.apply(_weights_init)
         self.align_epochs = align_epochs
-        self.set_optimizer(align_step)
 
     def _make_layer(self, block, planes, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
