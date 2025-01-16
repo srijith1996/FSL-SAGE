@@ -202,23 +202,30 @@ def take_lr_step(obj):
     return lr
 
 # ------------------------------------------------------------------------------
-def log_and_step_lr(i, alg, alg_name):
+def log_and_step_lr_per_round(alg, alg_name):
+    lr_dict = {}
+    log_dict = {}
+    if alg_name not in ['fed_avg', 'sl_multi_server']:
+        lr_dict['server_lr'] = take_lr_step(alg.server)
+        log_dict[f'Server/server_lr'] = lr_dict['server_lr']
+
+    return lr_dict, log_dict
+
+# ------------------------------------------------------------------------------
+def log_and_step_lr_per_client(i, alg, alg_name):
 
     # for client model
     lr_dict = {"client_lr" : take_lr_step(alg.clients[i])}
     log_dict = {}
     log_dict[f'Clients/client_{i}/cl_model_lr'] = lr_dict['client_lr']
 
-    # for server model(s)
+    # for server model(s) is multi_server
     if alg_name != 'fed_avg':
         if alg_name == 'sl_multi_server':
-            lr_dict[f'server/server_{i}_lr'] = \
+            lr_dict[f'server_{i}_lr'] = \
                 take_lr_step(alg.servers[i])
             log_dict[f'Server/server_{i}/server_lr'] = \
-                lr_dict[f'server/server_{i}_lr']
-        else:
-            lr_dict['server/server_lr'] = take_lr_step(alg.server)
-            log_dict[f'Server/server_lr'] = lr_dict['server/server_lr']
+                lr_dict[f'server_{i}_lr']
 
     # for auxiliary models. For fsl_sage, the optimization happens within the
     # align() method.
@@ -317,7 +324,7 @@ def run_fl_algorithm(
                     })
 
                     # adjust learning rate based on algorithm
-                    lr_dict, log_dict_ = log_and_step_lr(
+                    lr_dict, log_dict_ = log_and_step_lr_per_client(
                         i, alg, cfg.algorithm.name
                     )
                     log_dict.update(log_dict_)
@@ -333,8 +340,18 @@ def run_fl_algorithm(
             acc_, loss_ = alg.evaluate()
             test_acc.append(acc_)
             test_loss.append(loss_)
+            log_dict.update({
+                'Test/accuracy': acc_,
+                'Test/loss': loss_,
+                'Test/load': comm_load
+            })
 
-            log_dict.update({'Test/accuracy': acc_, 'Test/loss': loss_})
+            # adjust learning rates for server models in single server runs
+            # i.e., sl_single_server, cse_fsl and fsl_sage
+            _, log_dict_ = log_and_step_lr_per_round(
+                alg, cfg.algorithm.name
+            )
+            log_dict.update(log_dict_)
 
             logging.info(
                 f' > Round {t}, ' + tr_str +
