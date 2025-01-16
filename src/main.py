@@ -156,12 +156,13 @@ def main(cfg: DictConfig):
     #print(OmegaConf.to_yaml(cfg))
 
     # wandb setup
-    wandb.login()
-    wandb.init(
-        project="fsl-sage", group=cfg.dataset.name,
-        name=f'{cfg.dataset.name}_{cfg.model.name}_{cfg.algorithm.name}',
-        config={k: v for k, v in cfg.items() if not isinstance(v, (list,tuple))}
-    )
+    if cfg.save:
+        wandb.login()
+        wandb.init(
+            project="fsl-sage", group=cfg.dataset.name,
+            name=f'{cfg.dataset.name}_{cfg.model.name}_{cfg.algorithm.name}',
+            config={k: v for k, v in cfg.items() if not isinstance(v, (list,tuple))}
+        )
 
     # setup logging
     with open_dict(cfg):
@@ -185,9 +186,13 @@ def main(cfg: DictConfig):
         'accuracy', metric_obj='max', save_dir=cfg.save_path
     ) if cfg.save else None
 
+    def __dummy_fn(*args, **kwargs):
+        pass
+
     results = run_fl_algorithm(
         cfg, server, client_list, test_loader, checkpointer,
-        global_torch_device, logger_fn=wandb.log
+        global_torch_device,
+        logger_fn=wandb.log if cfg.save else __dummy_fn
     )
 
     train_metrics = {}
