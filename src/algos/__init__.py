@@ -1,6 +1,6 @@
 # ------------------------------------------------------------------------------
 from abc import ABC, abstractmethod
-from typing import Dict, List
+from typing import Dict, List, Callable
 import os, importlib
 import logging, copy
 from dataclasses import dataclass
@@ -205,17 +205,30 @@ def take_lr_step(obj):
 def log_and_step_lr(i, alg, alg_name):
     lr_dict = {"client_lr" : take_lr_step(alg.clients[i])}
 
+    log_dict = {}
+    log_dict[f'Clients/client_{i}/cl_model_lr'] = lr_dict['client_lr']
     if alg_name != 'fed_avg':
         if alg_name == 'sl_multi_server':
             lr_dict[f'server/server_{i}_lr'] = \
                 take_lr_step(alg.servers[i])
+            log_dict[f'Clients/client_{i}/server_lr'] = \
+                lr_dict[f'server/server_{i}_lr']
         else:
             lr_dict['server/server_lr'] = take_lr_step(alg.server)
+            log_dict[f'Server/server_lr'] = lr_dict['server/server_lr']
 
     if alg_name == 'cse_fsl':
         lr_dict['aux_lr'] = take_lr_step(alg.clients[i].auxiliary_model)
 
-    return lr_dict
+    # log auxiliary model learning rate for fsl algorithms
+    if alg_name == 'cse_fsl' or \
+        alg_name =='fsl_sage':
+        log_dict.update({
+            f'client_{i}/aux_model/aux_model_lr': \
+                alg.clients[i].auxiliary_model.optimizer.param_groups[0]['lr']
+        })
+
+    return lr_dict, log_dict
 
 # ------------------------------------------------------------------------------
 def run_fl_algorithm(
@@ -224,7 +237,8 @@ def run_fl_algorithm(
     clients: List[Client],
     test_loader: DataLoader,
     checkpointer: Checkpointer,
-    torch_device
+    torch_device,
+    logger_fn: Callable
 ) -> FLResults:
 
     # get algorithm
@@ -249,6 +263,8 @@ def run_fl_algorithm(
             range(cfg.rounds), unit="rd", desc="Round", leave=False,
             colour='green'
         ):
+
+            log_dict = {}
             # set all models to train mode and train
             alg.train_mode(t)
             with tqdm(
@@ -291,11 +307,15 @@ def run_fl_algorithm(
                     else:
                         [train_metrics[i][k].append(v) for k, v in
                         tr_mets.items()]
+                    log_dict.update({
+                        f'Clients/client_{i}/{k}': v for k, v in tr_mets.items()
+                    })
 
                     # adjust learning rate based on algorithm
-                    lr_dict = log_and_step_lr(
+                    lr_dict, log_dict_ = log_and_step_lr(
                         i, alg, cfg.algorithm.name
                     )
+                    log_dict.update(log_dict_)
                     pbar.set_postfix(**tr_mets, **lr_dict)
 
             tr_str = __print_aggregate_metrics(train_metrics)
@@ -309,11 +329,14 @@ def run_fl_algorithm(
             test_acc.append(acc_)
             test_loss.append(loss_)
 
+            log_dict.update({'Test/accuracy': acc_, 'Test/loss': loss_})
+
             logging.info(
                 f' > Round {t}, ' + tr_str +
                 f', ts. loss: {loss_:.2f}, ts. acc: {100. * acc_:.2f}%' +
                 f', comm: {(alg.comm_load / (1024**3)):.2f} GiB.'
             )
+            logger_fn(log_dict, step=t)
 
             # save checkpoints
             if t % cfg.checkpoint_interval == 0:

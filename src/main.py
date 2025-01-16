@@ -6,6 +6,7 @@
 import os, logging, json
 import random
 import numpy as np
+import wandb
 
 import hydra
 from omegaconf import DictConfig, open_dict
@@ -151,8 +152,16 @@ def setup_server_and_clients(
 )
 def main(cfg: DictConfig):
 
-    print("##" * 10 + " CFG FILE IS: " + "##" * 10)
-    print(OmegaConf.to_yaml(cfg))
+    #print("##" * 10 + " CFG FILE IS: " + "##" * 10)
+    #print(OmegaConf.to_yaml(cfg))
+
+    # wandb setup
+    wandb.login()
+    wandb.init(
+        project="fsl-sage", group=cfg.dataset.name,
+        name=f'{cfg.dataset.name}_{cfg.model.name}_{cfg.algorithm.name}',
+        config={k: v for k, v in cfg.items() if not isinstance(v, (list,tuple))}
+    )
 
     # setup logging
     with open_dict(cfg):
@@ -178,7 +187,7 @@ def main(cfg: DictConfig):
 
     results = run_fl_algorithm(
         cfg, server, client_list, test_loader, checkpointer,
-        global_torch_device
+        global_torch_device, logger_fn=wandb.log
     )
 
     train_metrics = {}

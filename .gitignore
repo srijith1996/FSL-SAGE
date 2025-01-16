@@ -12,6 +12,7 @@ save_commands.sh
 save_temp
 data/
 datas/
+wandb/
 
 # output files
 *.pyc
