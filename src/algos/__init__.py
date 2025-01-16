@@ -203,20 +203,25 @@ def take_lr_step(obj):
 
 # ------------------------------------------------------------------------------
 def log_and_step_lr(i, alg, alg_name):
-    lr_dict = {"client_lr" : take_lr_step(alg.clients[i])}
 
+    # for client model
+    lr_dict = {"client_lr" : take_lr_step(alg.clients[i])}
     log_dict = {}
     log_dict[f'Clients/client_{i}/cl_model_lr'] = lr_dict['client_lr']
+
+    # for server model(s)
     if alg_name != 'fed_avg':
         if alg_name == 'sl_multi_server':
             lr_dict[f'server/server_{i}_lr'] = \
                 take_lr_step(alg.servers[i])
-            log_dict[f'Clients/client_{i}/server_lr'] = \
+            log_dict[f'Server/server_{i}/server_lr'] = \
                 lr_dict[f'server/server_{i}_lr']
         else:
             lr_dict['server/server_lr'] = take_lr_step(alg.server)
             log_dict[f'Server/server_lr'] = lr_dict['server/server_lr']
 
+    # for auxiliary models. For fsl_sage, the optimization happens within the
+    # align() method.
     if alg_name == 'cse_fsl':
         lr_dict['aux_lr'] = take_lr_step(alg.clients[i].auxiliary_model)
 
@@ -224,7 +229,7 @@ def log_and_step_lr(i, alg, alg_name):
     if alg_name == 'cse_fsl' or \
         alg_name =='fsl_sage':
         log_dict.update({
-            f'client_{i}/aux_model/aux_model_lr': \
+            f'Clients/client_{i}/aux_model/aux_model_lr': \
                 alg.clients[i].auxiliary_model.optimizer.param_groups[0]['lr']
         })
 
@@ -339,13 +344,14 @@ def run_fl_algorithm(
             logger_fn(log_dict, step=t)
 
             # save checkpoints
-            if t % cfg.checkpoint_interval == 0:
+            if cfg.save and t % cfg.checkpoint_interval == 0:
                 checkpointer.save(
                     t, alg.server, alg.clients, {'accuracy': acc_}
                 )
 
             # stop if communication load exceeds threshold
             if alg.comm_load / (1024**2) >= cfg.comm_threshold_mb:
+                logging.info(f"Communication budget reached/exceeded @ {t:d} rounds!")
                 break
 
     return FLResults(
