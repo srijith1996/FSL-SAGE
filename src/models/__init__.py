@@ -105,7 +105,7 @@ class Client():
 
         # optimizer and lr schedules for the auxiliary model
         self.aux_optimizer = config_optimizer(
-                self.auxiliary_model.parameters, cfg_aux.optimizer
+                self.auxiliary_model.parameters(), cfg_aux.optimizer
             )
         self.auxiliary_model.set_optimizer_lr_scheduler(
             self.aux_optimizer, config_lr_scheduler(

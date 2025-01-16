@@ -192,6 +192,32 @@ def __print_aggregate_metrics(client_metrics_dict, prefix='tr.'):
     return print_str
 
 # ------------------------------------------------------------------------------
+def take_lr_step(obj):
+
+    if obj.lr_scheduler:
+        obj.lr_scheduler.step()
+        lr = obj.lr_scheduler.get_last_lr()[0]
+    else:
+        lr = obj.optimizer.param_groups[0]['lr']
+    return lr
+
+# ------------------------------------------------------------------------------
+def log_and_step_lr(i, alg, alg_name):
+    lr_dict = {"client_lr" : take_lr_step(alg.clients[i])}
+
+    if alg_name != 'fed_avg':
+        if alg_name == 'sl_multi_server':
+            lr_dict[f'server/server_{i}_lr'] = \
+                take_lr_step(alg.servers[i])
+        else:
+            lr_dict['server/server_lr'] = take_lr_step(alg.server)
+
+    if alg_name == 'cse_fsl':
+        lr_dict['aux_lr'] = take_lr_step(alg.clients[i].auxiliary_model)
+
+    return lr_dict
+
+# ------------------------------------------------------------------------------
 def run_fl_algorithm(
     cfg: DictConfig,
     server: Server,
@@ -266,13 +292,11 @@ def run_fl_algorithm(
                         [train_metrics[i][k].append(v) for k, v in
                         tr_mets.items()]
 
-                    if clients[i].lr_scheduler:
-                        clients[i].lr_scheduler.step()
-                        lr = clients[i].lr_scheduler.get_last_lr()[0]
-                    else:
-                        lr = clients[i].optimizer.param_groups[0]['lr']
-
-                    pbar.set_postfix(lr=lr, **tr_mets)
+                    # adjust learning rate based on algorithm
+                    lr_dict = log_and_step_lr(
+                        i, alg, cfg.algorithm.name
+                    )
+                    pbar.set_postfix(**tr_mets, **lr_dict)
 
             tr_str = __print_aggregate_metrics(train_metrics)
 

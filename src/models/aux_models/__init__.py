@@ -158,7 +158,7 @@ class GradScalarAuxiliaryModel(AuxiliaryModel):
         return loss
 
     def align(self):
-        bar = trange(self.align_epochs, desc="Alignment", disable=True)
+        bar = trange(self.align_epochs, desc="Alignment", leave=False)
         logging.debug(f"# batches for alignment: {len(self.data_loader)}")
         for i in bar:
             for x, y, labels in self.data_loader:
@@ -169,6 +169,7 @@ class GradScalarAuxiliaryModel(AuxiliaryModel):
             if i % 10 == 0:
                 logging.debug(f" --- Epoch {i:4d}/{self.align_epochs}, Loss {loss:.4e}")
             bar.set_postfix(loss=loss.item())
+            if self.lr_scheduler is not None: self.lr_scheduler.step()
 
     def forward(self, x, label):
         x.requires_grad_(True)
