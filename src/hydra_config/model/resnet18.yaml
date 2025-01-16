@@ -5,7 +5,7 @@ name: resnet18
 
 client:
   epoch      : 1
-  batch_size : 128
+  batch_size : 256
   options:
   optimizer:
     name: adam
