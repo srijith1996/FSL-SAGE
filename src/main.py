@@ -7,6 +7,7 @@ import os, logging, json
 import random
 import numpy as np
 import wandb
+from datetime import datetime
 
 import hydra
 from omegaconf import DictConfig, open_dict
@@ -158,9 +159,17 @@ def main(cfg: DictConfig):
     # wandb setup
     if cfg.save:
         wandb.login()
+        wandb_run_name = f'{cfg.algorithm.name}_{cfg.model.name}_{cfg.dataset.name}'
+        if cfg.dataset.distribution in ['iid', 'noniid']:
+            wandb_run_name += f'_{cfg.dataset.distribution}'
+        else:
+            wandb_run_name += f'_alp_{cfg.dataset.alpha}'
+
+        wandb_run_name += datetime.now().strftime(r'_%y%m%d_%H%M%S')
+
         wandb.init(
             project="fsl-sage", group=cfg.dataset.name,
-            name=f'{cfg.dataset.name}_{cfg.model.name}_{cfg.algorithm.name}',
+            name=wandb_run_name,
             config={k: v for k, v in cfg.items() if not isinstance(v, (list,tuple))}
         )
 
@@ -195,6 +204,10 @@ def main(cfg: DictConfig):
         logger_fn=wandb.log if cfg.save else __dummy_fn
     )
 
+    # end wandb run
+    wandb.finish()
+
+    # save all results
     train_metrics = {}
     for met in results.train_metrics:
         train_metrics.update(met)
