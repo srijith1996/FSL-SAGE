@@ -437,7 +437,7 @@ class GPT2LMServerModel(nn.Module):
 
     def forward(self, *args, **kwargs):
         # args : hidden_states, presents, input_shape, past, past_len
-        _batch, _len = args[2]
+        #_batch, _len = args[2]
         hidden_states, presents = self.transformer(*args, **kwargs)
 
         # batch, seq, vocab
