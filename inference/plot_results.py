@@ -6,8 +6,9 @@ import json, yaml
 import numpy as np
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-from utils import plot_util as pu
 from prettytable import PrettyTable
+
+from src.utils import plot_util as pu
 
 # -----------------------------------------------------------------------------
 def setup(color_scheme=None):
@@ -65,8 +66,9 @@ def get_path(cfg, exp_cfg, key_name, path):
 def accuracy_plot(
     save_dicts, metrics, metric_names, test_ids, metric_minimize,
     x_comm_load=False, plots_dir='../plots', legend=True,
-    x_axis_rnds_lim=None, mark_at_metric=None
+    x_axis_rnds_lim=None, mark_at_metric=None, centralized_level=None
 ):
+
     for n, (metric, metric_name) in enumerate(zip(metrics, metric_names)):
         fig_size = pu.get_fig_size(9, 7)
         fig = plt.figure(figsize=fig_size)
@@ -75,6 +77,7 @@ def accuracy_plot(
         key_names = []
         handles = []
         plot_colors = []
+        metric_vals = []
         for i, (k, v) in enumerate(save_dicts.items()):
             if i in test_ids:
                 x_lim = len(v[metric])
@@ -85,14 +88,25 @@ def accuracy_plot(
                 x_ = [c_load / (1024 ** 3) for c_load in v['comm_load']][:x_lim] \
                     if x_comm_load else np.arange(0, x_lim)
 
-                label = k if legend != 'names_only' else None
-                h, = ax.plot(x_, v[metric][:x_lim], label=label, lw=pu.plot_lw())
+                #label = k if legend != 'names_only' else None
+                h, = ax.plot(x_, v[metric][:x_lim], lw=pu.plot_lw())
                 plot_colors.append(h.get_color())
                 key_name_only = k[:k.index('(')].strip() if '(' in k else k
 
                 if key_name_only not in key_names:
                     key_names.append(key_name_only)
                     handles.append(h)
+                    metric_vals.append(np.max(v[metric][:x_lim]))
+
+        if metric == 'test_acc' and centralized_level is not None:
+            print(f"here {centralized_level}")
+            xlims = ax.get_xlim()
+            print(xlims, [centralized_level]*2)
+            ax.plot(
+                xlims, [centralized_level]*2, color='blue', linestyle='dashed',
+                linewidth=1.0, alpha=0.8
+            )
+            ax.set_xlim(xlims)
 
         # plot horizontal and vertical lines indicating where each algorithm
         # attains chosen accuracy
@@ -110,6 +124,7 @@ def accuracy_plot(
                 linewidth=1.0, alpha=0.8
             )
 
+            existing_pts = []
             for i, (k, v) in enumerate(save_dicts.items()):
                 if not i in test_ids:
                     continue
@@ -128,12 +143,21 @@ def accuracy_plot(
                     color=plot_colors[i], linestyle='dashed', linewidth=1.0,
                     alpha=0.8
                 )
-                ax.text(
-                    x_alg + 1, mark_at_metric[n] - 0.2,
-                    f'{x_alg:.2f}GB' if x_comm_load else f'{x_alg:d}',
-                    color=plot_colors[i], rotation=90, size=6, alpha=1.0,
-                    weight='bold'
-                )
+
+                curr_pt = (x_alg + 1, mark_at_metric[n] - 0.2)
+                skip = False
+                for pt in existing_pts:
+                    if np.abs(curr_pt[0] - pt[0]) <= 3.0:
+                        skip = True
+
+                if not skip:
+                    ax.text(
+                        curr_pt[0], curr_pt[1],
+                        f'{x_alg:.2f}GB' if x_comm_load else f'{x_alg:d}',
+                        color=plot_colors[i], rotation=90, size=6, alpha=1.0,
+                        weight='bold'
+                    )
+                    existing_pts.append(curr_pt)
 
             # restore original plot limits
             ax.set_xlim(xlims)
@@ -147,10 +171,13 @@ def accuracy_plot(
 
         ax.set_axisbelow(True)
 
-        if legend == 'names_only':
-            ax.legend(handles, key_names)
-        elif legend:
-            ax.legend(loc='lower right')
+        #if legend == 'names_only':
+        #    ax.legend(handles, key_names)
+        if legend:
+            idx = np.flip(np.argsort(metric_vals))
+            handles = np.array(handles)[idx]
+            key_names = np.array(key_names)[idx]
+            ax.legend(handles, key_names, loc='lower right', fontsize=10)
         ax.grid(
             True, which='both', axis='both', linestyle='dotted', linewidth=0.5,
             color='gray', alpha=0.5
@@ -288,24 +315,33 @@ def metrics_vs_dirichlet_alpha(
         x_axes = []
         metric_vals = []
         legends = []
+        max_met_val = []
         for i, (alg, alpha_dict) in enumerate(save_dicts.items()):
             if i in test_ids:
                 x_axes.append(list(alpha_dict.keys()))
-                metric_vals.append([
+                curr_met_list = [
                     __get_val(i, j, v, metric, metric_min)
                      for j, v in enumerate(alpha_dict.values())
-                ])
+                ]
+                metric_vals.append(curr_met_list)
                 legends.append(alg)
+                max_met_val.append(np.max(curr_met_list))
 
-        for x_, y_, leg_ in zip(x_axes, metric_vals, legends):
-            ax.semilogx(x_, y_, label=leg_, lw=pu.plot_lw(), marker='o')
+        handles = []
+        for x_, y_ in zip(x_axes, metric_vals):
+            h, = ax.semilogx(x_, y_, lw=pu.plot_lw(), marker='o')
+            handles.append(h)
         
         ax.set_axisbelow(True)
         ax.set_xlabel(r"$\alpha$")
         ylabel = f'{metric_name} @ ${align_comm_load/(1024**3):.2f}$ GiB' \
             if align_at == 'comm_load' else f'{metric_name}'
         ax.set_ylabel(ylabel)
-        ax.legend(loc='lower right')
+
+        idx = np.flip(np.argsort(max_met_val))
+        handles, legends = np.array(handles)[idx], np.array(legends)[idx]
+        ax.legend(handles, legends, loc='lower right')
+
         ax.grid(True, which='both', axis='both')
         plt.tight_layout()
         met_type = 'best' if metric_min is not None else 'final'
@@ -439,7 +475,8 @@ def metrics_vs_comm_load_scatter(
             func=s_func_inv
         )
         legend2 = ax.legend(
-            handles, labels, loc="lower right", handletextpad=0.0, title=r'$\alpha$', frameon=False
+            handles, labels, loc="lower right", handletextpad=0.0,
+            title=r'$\alpha$', frameon=False
         )
         
         #ax.legend(loc='lower center')
@@ -554,6 +591,21 @@ def misc_exps(config):
                 raise Exception(f"Unknown experiment type {exp_type}")
 
 # -----------------------------------------------------------------------------
+def make_table(exp_name, exp, results, choose_fn=lambda x: -1, suffix='final'):
+    table = PrettyTable()
+    table.field_names = ['', 'Acc', 'load']
+    for i, (k, v) in enumerate(results.items()):
+        if i in exp['test_ids']:
+            idx = choose_fn(v['test_acc'])
+            load = v['comm_load'][idx] / (1024**3)
+            acc = v['test_acc'][idx] * 100.0
+            table.add_row([k, f'{acc:.2f}', f'{load:.2f}'])
+    print(table)
+    os.makedirs(exp_name, exist_ok=True)
+    with open(os.path.join(exp_name, f'table_{suffix}.txt'), 'w') as f:
+        print(table, file=f, flush=True)
+
+# -----------------------------------------------------------------------------
 def main():
     with open('./exp_config.yaml', 'r') as yml_file:
         config = yaml.safe_load(yml_file)
@@ -598,7 +650,9 @@ def main():
                 metric_minimize=[False, True], 
                 plots_dir=plot_dir,
                 legend=exp['legend'] if 'legend' in exp else True,
-                x_axis_rnds_lim=x_axis_rnds_lim, mark_at_metric=[0.80, 0.65]
+                x_axis_rnds_lim=x_axis_rnds_lim,
+                mark_at_metric=[exp['accuracy_mark_level'], exp['loss_mark_level']],
+                centralized_level=exp['centralized_level'] if 'centralized_level' in exp else None
             )
             accuracy_plot(
                 results, ['test_acc', 'test_loss'],
@@ -607,19 +661,15 @@ def main():
                 metric_minimize=[False, True], 
                 plots_dir=plot_dir,
                 legend=exp['legend'] if 'legend' in exp else True,
-                x_axis_rnds_lim=x_axis_rnds_lim, mark_at_metric=[0.80, 0.65]
+                x_axis_rnds_lim=x_axis_rnds_lim,
+                mark_at_metric=[exp['accuracy_mark_level'], exp['loss_mark_level']],
+                centralized_level=exp['centralized_level'] if 'centralized_level' in exp else None
             )
 
         # table
         if config['table']:
-            table = PrettyTable()
-            table.field_names = ['', 'Acc', 'load']
-            for i, (k, v) in enumerate(results.items()):
-                if i in exp['test_ids']:
-                    load = v['comm_load'][-1] / (1024**3)
-                    acc = v['test_acc'][-1] * 100.0
-                    table.add_row([k, f'{acc:.2f}', f'{load:.2f}'])
-            print(table)
+            make_table(exp_name, exp, results, choose_fn=np.argmax, suffix='best')
+            make_table(exp_name, exp, results)
 
     misc_exps(config)
 
