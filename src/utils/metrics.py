@@ -19,6 +19,10 @@ class Metric(ABC):
     def average(self):
         return self.running_sum / self.count
 
+    def reset(self):
+        self.running_sum = 0.0
+        self.count = 0
+
 # ------------------------------------------------------------------------------
 class AccuracyMetric(Metric):
 
