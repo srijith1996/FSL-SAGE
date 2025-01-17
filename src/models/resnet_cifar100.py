@@ -124,14 +124,15 @@ class ResNetClient(nn.Module):
     def __init__(
         self, 
         block : BasicBlock, 
+        in_planes : int,
         num_blocks : List[int],
     ) -> None:
         super(ResNetClient, self).__init__()
-        self.in_planes = 16
+        self.in_planes = in_planes
 
-        self.conv1 = nn.Conv2d(3, self.in_planes, kernel_size=3, stride=1, padding=1, bias=False)
-        self.bn1 = nn.BatchNorm2d(16)
-        self.layer1 = self._make_layer(block, 16, num_blocks[0], stride=1)
+        self.conv1 = nn.Conv2d(3, in_planes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(self.in_planes)
+        self.layer1 = self._make_layer(block, self.in_planes, num_blocks[0], stride=1)
         self.apply(_weights_init)
 
     def _make_layer(self, block, planes, num_blocks, stride):
@@ -156,15 +157,15 @@ class ResNetServer(nn.Module):
         self, 
         block : Type[BasicBlock],
         num_blocks : List[int],
-        inplanes : int = 16,
+        in_planes : int,
         num_classes=100,
     ) -> None:
         super(ResNetServer, self).__init__()
-        self.in_planes = inplanes
+        self.in_planes = in_planes
 
-        self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
-        self.layer3 = self._make_layer(block, 64, num_blocks[2], stride=2)
-        self.linear = nn.Linear(64, num_classes)
+        self.layer2 = self._make_layer(block, in_planes*2, num_blocks[1], stride=2)
+        self.layer3 = self._make_layer(block, in_planes*4, num_blocks[2], stride=2)
+        self.linear = nn.Linear(in_planes*4, num_classes)
 
         self.apply(_weights_init)
 
@@ -216,19 +217,19 @@ def resnet1202(num_classes=100):
     return ResNet(BasicBlock, [200, 200, 200], num_classes=num_classes)
 
 # ------------------------------------------------------------------------------
-def resnet56_sl_client(**kwargs):
+def resnet56_sl_client(in_planes=64, **kwargs):
     return ResNetClient(BasicBlock, [9, 9, 9])
 
-def resnet56_sl_server(num_classes=100, **kwargs):
+def resnet56_sl_server(in_planes=64, num_classes=100, **kwargs):
     return ResNetServer(BasicBlock, [9, 9, 9], num_classes=num_classes)
 
 register_client_server_pair('resnet56', resnet56_sl_client, resnet56_sl_server)
 
 # ------------------------------------------------------------------------------
-def resnet110_sl_client(**kwargs):
+def resnet110_sl_client(in_planes=64, **kwargs):
     return ResNetClient(BasicBlock, [18, 18, 18])
 
-def resnet110_sl_server(num_classes=100, **kwargs):
+def resnet110_sl_server(in_planes=64, num_classes=100, **kwargs):
     return ResNetServer(BasicBlock, [18, 18, 18], num_classes=num_classes)
 
 register_client_server_pair('resnet110', resnet110_sl_client, resnet110_sl_server)
@@ -237,7 +238,7 @@ register_client_server_pair('resnet110', resnet110_sl_client, resnet110_sl_serve
 def resnet1202_sl_client():
     return ResNetClient(BasicBlock, [200, 200, 200])
 
-def resnet1202_sl_server(num_classes=100):
+def resnet1202_sl_server(in_planes=64, num_classes=100):
     return ResNetServer(BasicBlock, [200, 200, 200], num_classes=num_classes)
 
 register_client_server_pair('resnet1202', resnet1202_sl_client, resnet1202_sl_server)

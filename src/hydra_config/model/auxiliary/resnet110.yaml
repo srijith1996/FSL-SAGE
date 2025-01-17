@@ -3,5 +3,6 @@ defaults:
 
 name: resnet110
 options:
+  in_planes   : 64
   num_classes : 100
   layers      : [18, 18, 18]

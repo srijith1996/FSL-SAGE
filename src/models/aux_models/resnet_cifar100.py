@@ -15,7 +15,7 @@ class ResNetAuxiliary(aux_models.GradScalarAuxiliaryModel):
         server,
         block : Type[BasicBlock],
         num_blocks : List[int],
-        inplanes : int = 16,
+        in_planes : int,
         num_classes=100,
         device = 'cpu',
         align_epochs=5, 
@@ -25,10 +25,10 @@ class ResNetAuxiliary(aux_models.GradScalarAuxiliaryModel):
         super(ResNetAuxiliary, self).__init__(
             server, device, align_epochs, align_batch_size, max_dataset_size
         )
-        self.in_planes = inplanes
+        self.in_planes = in_planes
 
-        self.layer2 = self._make_layer(block, 32, num_blocks[1], stride=2)
-        self.linear = nn.Linear(32, num_classes)
+        self.layer2 = self._make_layer(block, in_planes*2, num_blocks[1], stride=2)
+        self.linear = nn.Linear(in_planes*2, num_classes)
 
         self.apply(_weights_init)
 
@@ -54,7 +54,7 @@ class ResNetAuxiliary(aux_models.GradScalarAuxiliaryModel):
 
 @register_auxiliary_model("resnet56", disable_check=True)
 def resnet56_sl_aux(
-    server, layers = [9, 9, 9], in_planes : int=16, weights: Optional[Any] =
+    server, layers = [9, 9, 9], in_planes : int=64, weights: Optional[Any] =
     None, progress: bool = True, num_classes: int = 100, device='cpu', **kwargs:
     Any
 ):
@@ -66,7 +66,7 @@ def resnet56_sl_aux(
 
 @register_auxiliary_model("resnet110", disable_check=True)
 def resnet110_sl_aux(
-    server, layers = [18, 18, 18], in_planes : int=16, weights: Optional[Any] =
+    server, layers = [18, 18, 18], in_planes : int=64, weights: Optional[Any] =
     None, progress: bool = True, num_classes: int = 100, device='cpu', **kwargs:
     Any
 ):
@@ -78,7 +78,7 @@ def resnet110_sl_aux(
 
 @register_auxiliary_model("resnet1202", disable_check=True)
 def resnet1202_sl_aux(
-    server, layers = [200, 200, 200], in_planes : int=16, weights:
+    server, layers = [200, 200, 200], in_planes : int=64, weights:
     Optional[Any] = None, progress: bool = True, num_classes: int = 100,
     device='cpu', **kwargs: Any
 ):

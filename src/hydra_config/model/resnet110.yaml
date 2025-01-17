@@ -7,6 +7,7 @@ client:
   epoch      : 1
   batch_size : 256
   options:
+    in_planes   : 64
   optimizer:
     name: adam
     options:
@@ -19,6 +20,7 @@ client:
 
 server:
   options:
+    in_planes   : 64
     num_classes : 10
 
   optimizer:
