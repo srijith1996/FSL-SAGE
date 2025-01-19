@@ -4,6 +4,7 @@ from typing import Type, Union, List, Optional, Callable, Any
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch import Tensor
 
 from models.resnet import BasicBlock, Bottleneck, conv1x1
@@ -129,7 +130,7 @@ class ResNetAuxiliary(aux_models.GradScalarAuxiliaryModel):
         return x
 
     def forward_inner(self, x: Tensor) -> Tensor:
-        return self._forward_impl(x)
+        return F.log_softmax(self._forward_impl(x), dim=1)
 
 # ------------------------------------------------------------------------------
 def _resnet_sl_auxiliary(

@@ -13,6 +13,42 @@ from torch import optim
 from torch.utils.data import DataLoader, TensorDataset, Dataset
 
 # ------------------------------------------------------------------------------
+class RefreshDataset(Dataset):
+    def __init__(self,
+        inputs, labels, aux_inputs_list, max_dataset_size
+    ):
+
+        self.inputs = inputs
+        self.labels = labels
+        self.aux_inputs_list = aux_inputs_list
+        self.max_data_size = max_dataset_size
+        self.maintain_size()
+
+    def __len__(self):
+        return len(self.inputs)
+
+    def __getitem__(self, idx):
+        aux_inputs = [aux[idx] for aux in self.aux_inputs_list]
+        return self.inputs[idx], self.labels[idx], *aux_inputs
+
+    def append(self, inputs, labels, aux_inputs_list):
+        self.inputs = torch.cat((self.inputs, inputs), axis=0)
+        self.labels = torch.cat((self.labels, labels), axis=0)
+        for i, aux_ins in enumerate(aux_inputs_list):
+            self.aux_inputs_list[i] = torch.cat(
+                (self.aux_inputs_list[i], aux_ins), axis=0
+            )
+        self.maintain_size()
+
+    def maintain_size(self):
+        self.inputs = self.inputs[-self.max_data_size:]
+        self.labels = self.labels[-self.max_data_size:]
+        for i in range(len(self.aux_inputs_list)):
+            self.aux_inputs_list[i] = self.aux_inputs_list[i][
+                -self.max_data_size:
+            ]
+
+# ------------------------------------------------------------------------------
 class AlignDataset(Dataset):
     def __init__(self, inputs, outputs, labels, aux_inputs_list, safe_len=None):
         if safe_len is None:
@@ -58,11 +94,8 @@ class AuxiliaryModel(ABC, nn.Module):
         super(AuxiliaryModel, self).__init__()
 
         self.max_data_size = max_dataset_size
-        self.data_x = []           # dataset cut-layer activations
-        self.data_labels = []      # labels corresponding to the data_x
-        self.data_other = []       # other inputs passed along with smashed data
-        self.data_y = []           # dataset cut-layer true gradients
-        self.dataset = None
+        self.refresh_dataset = None
+        self.align_dataloader = None
         self.align_batch_size = align_batch_size
         self.server = server
         self.device = device
@@ -87,51 +120,49 @@ class AuxiliaryModel(ABC, nn.Module):
                 last point.
         
         '''
-        self.data_y = []
-        logging.debug(f"Size of alignment dataset: {len(self.data_x)}")
-        for i in range(len(self.data_x)):
-            x = self.data_x[i].clone().detach().requires_grad_(True)
-            label = self.data_labels[i]
-            other_args = [arg[i] for arg in self.data_other]
+        logging.debug(
+            f"Size of alignment dataset: {len(self.refresh_dataset)}"
+        )
 
+        data_y = None
+        
+        for i, data in enumerate(DataLoader(
+            self.refresh_dataset, batch_size=self.align_batch_size,
+            pin_memory=False, shuffle=False
+        )):
+            x, label = data[0], data[1]
+            aux_ins = data[2:] if len(data) > 2 else []
+            x.requires_grad_(True)
             self.server.optimizer.zero_grad()
-            out = self.server.model(x, *other_args)
+            out = self.server.model(x, *aux_ins)
             out = out[0] if isinstance(out, tuple) else out
             self.server.criterion(out, label).backward()
-            self.data_y.append(x.grad.clone().detach())
+            
+            y_ = x.grad.clone().detach()
+            data_y = y_ if i == 0 else torch.cat((data_y, y_), axis=0)
             self.server.optimizer.zero_grad()
 
-        #all_ins = self.data_x.clone().detach().requires_grad_(True)
-        #all_others = [
-        #    other_in.clone().detach() if isinstance(other_in, torch.Tensor)
-        #    else other_in for other_in in self.data_other
-        #]
-        #all_out = self.server.model(all_ins, *all_others)
-        #all_out = all_out[0] if isinstance(all_out, tuple) else all_out
-        #all_loss = self.server.criterion(all_out, self.data_labels)
-        #all_loss.backward()
-        #self.data_y = all_ins.grad.clone().detach()
-        #self.server.optimizer.zero_grad()
-
-        self.dataset = AlignDataset(
-                self.data_x, self.data_y, self.data_labels, self.data_other
+        align_dataset = AlignDataset(
+            self.refresh_dataset.inputs, data_y,
+            self.refresh_dataset.labels,
+            self.refresh_dataset.aux_inputs_list
         )
-        self.data_loader = DataLoader(
-            self.dataset, batch_size=self.align_batch_size,
+        self.align_dataloader = DataLoader(
+            align_dataset, batch_size=self.align_batch_size,
             shuffle=True, pin_memory=False
         )
 
-    def get_align_dataset(self):
-        '''Get X data concatenated with the labels'''
+    #def get_align_dataset(self):
+    #    '''Get X data concatenated with the labels'''
+    #
+    #    # TODO: may need more generalized version for multi-dimensional x
+    #    return torch.cat((self.data_x, self.data_labels[:, None]), axis=1), self.data_y
 
-        # TODO: may need more generalized version for multi-dimensional x
-        return torch.cat((self.data_x, self.data_labels[:, None]), axis=1), self.data_y
-
-    def get_cat_data(self, x, label):
-        '''Get X data concatenated with the labels'''
-
-        # TODO: may need more generalized version for multi-dimensional x
-        return torch.cat((x, label[:, None]), axis=1)
+    #def get_cat_data(self, x, label):
+    #    '''Get X data concatenated with the labels'''
+    #
+    #    # TODO: may need more generalized version for multi-dimensional x
+    #    return torch.cat((x, label[:, None]), axis=1)
 
     def add_datapoint(self, x, label, *other_inputs):
         '''Add the given smashed data batch to the alignment dataset.
@@ -145,22 +176,15 @@ class AuxiliaryModel(ABC, nn.Module):
         '''
         #self.data_x = torch.cat((self.data_x, x), dim=0)
         #self.data_labels = torch.cat((self.data_labels, label), dim=0).long()
-        self.data_x.append(x)
-        self.data_labels.append(label)
 
-        for i, inp in enumerate(other_inputs):
-            if len(self.data_other) < (i + 1):
-                self.data_other.append([])
-            self.data_other[i].append(inp)
+        if self.refresh_dataset is None:
+            self.refresh_dataset = RefreshDataset(
+                x, label, other_inputs, self.max_data_size
+            )
+        else:
+            self.refresh_dataset.append(x, label, other_inputs)
 
-        # maintain size of dataset <= max_data_size
-        if len(self.data_x) > self.max_data_size:
-            self.data_x = self.data_x[-self.max_data_size:]
-            self.data_labels = self.data_labels[-self.max_data_size:]
-            for i in range(len(self.data_other)):
-                self.data_other[i] = self.data_other[i][-self.max_data_size:]
-
-        assert len(self.data_x) <= self.max_data_size,\
+        assert len(self.refresh_dataset) <= self.max_data_size,\
             "Error in <add_datapoint>: Dataset size has exceeded limit"
 
     def debug_grad_nmse(self, x, labels, pre=''):
@@ -210,9 +234,9 @@ class GradScalarAuxiliaryModel(AuxiliaryModel):
 
     def align(self):
         bar = trange(self.align_epochs, desc="Alignment", leave=False)
-        logging.debug(f"# batches for alignment: {len(self.data_loader)}")
+        logging.debug(f"# batches for alignment: {len(self.align_dataloader)}")
         for i in bar:
-            for data in self.data_loader:
+            for data in self.align_dataloader:
                 x, y, labels = data[0], data[1], data[2]
                 other_ins = data[3:] if len(data) > 3 else []
                 self.optimizer.zero_grad()

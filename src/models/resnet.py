@@ -562,7 +562,7 @@ class ResNetServer(nn.Module):
         return x
 
     def forward(self, x: Tensor) -> Tensor:
-        return self._forward_impl(x)
+        return F.log_softmax(self._forward_impl(x), dim=1)
 
 # ------------------------------------------------------------------------------
 def _resnet_sl_client(

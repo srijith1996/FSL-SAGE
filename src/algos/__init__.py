@@ -165,7 +165,7 @@ def prepare_batch(data, torch_device, task, use_64bit=False):
     x, y = data[0], data[1]
     if torch.is_floating_point(x):
         x = x.double() if use_64bit else x.float()
-    y = y.long() if task == 'classification' else y
+    y = y.long() if task == 'image_classification' else y
     args = list(data)[2:] if len(data) > 2 else []
 
     return x, y, args
@@ -325,7 +325,9 @@ def run_fl_algorithm(
                                 )
 
                                 # take client step
-                                tr_metrics = alg.client_step((t, i, j, k), x, y, *args)
+                                tr_metrics = alg.client_step(
+                                    (t, i, j, k), x, y, *args
+                                )
 
                                 pbar_local.set_postfix(**tr_metrics)
                                 if j == 0 and k == 0:
