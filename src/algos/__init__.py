@@ -374,7 +374,7 @@ def run_fl_algorithm(
                 metric_lists[k].append(metrics[k])
 
             log_dict.update(
-                {f'Test/{k}': v for k, v in metric_lists[k].items()}
+                {f'Test/{k}': v for k, v in metric_lists.items()}
             )
 
             # adjust learning rates for server models in single server runs
@@ -388,9 +388,9 @@ def run_fl_algorithm(
             print_str = f' > Round {t}, Test '
             for i, (k, v) in enumerate(metrics.items()):
                 if i == len(metrics.keys()) - 1:
-                    print_str += f'{k}: {v:.2f}'
+                    print_str += f'{k}: {v:.2g}'
                 else:
-                    print_str += f'{k}: {v:.2f}, '
+                    print_str += f'{k}: {v:.2g}, '
             logging.info(print_str)
             logger_fn(log_dict, step=t)
 

@@ -3,3 +3,4 @@ distribution : iid
 shard_num    : 10
 alpha        : 10.0
 num_classes  : 200
+problem_type : image_classification

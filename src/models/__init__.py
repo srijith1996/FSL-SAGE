@@ -168,7 +168,9 @@ class Server():
     optimizer : Any
     alignment_loss: Callable
 
-    def __init__(self,server, cfg, device='cpu'):
+    def __init__(self,
+        server, cfg, problem_type='image_classification', device='cpu'
+    ):
         self.model = server
         self.alignment_loss = nn.MSELoss().to(device)
 
@@ -181,9 +183,13 @@ class Server():
             self.optimizer, cfg.lr_scheduler
         ) if "lr_scheduler" in cfg and cfg.lr_scheduler else None
 
-        if 'label_smooth' not in cfg:
-            with open_dict(cfg): cfg['label_smooth'] = 0.0
-        self.criterion = MaskingCrossEntropyLoss(smoothing=cfg.label_smooth)
+        if problem_type != 'image_classification':
+            if 'label_smooth' not in cfg:
+                with open_dict(cfg): cfg['label_smooth'] = 0.0
+            self.criterion = MaskingCrossEntropyLoss(
+                smoothing=cfg.label_smooth).to(device)
+        else:
+            self.criterion = nn.NLLLoss().to(device)
 
 # -----------------------------------------------------------------------------
 # Automatically import any Python files in the models/ directory

@@ -116,6 +116,10 @@ class AuxiliaryModel(ABC, nn.Module):
         self.dataset = AlignDataset(
                 self.data_x, self.data_y, self.data_labels, self.data_other
         )
+        self.data_loader = DataLoader(
+            self.dataset, batch_size=self.align_batch_size,
+            shuffle=True, pin_memory=False
+        )
 
     def get_align_dataset(self):
         '''Get X data concatenated with the labels'''
