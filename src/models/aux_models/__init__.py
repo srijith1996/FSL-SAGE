@@ -58,11 +58,19 @@ class AuxiliaryModel(ABC, nn.Module):
         super(AuxiliaryModel, self).__init__()
 
         self.max_data_size = max_dataset_size
+<<<<<<< HEAD
         self.data_x = []           # dataset cut-layer activations
         self.data_labels = []      # labels corresponding to the data_x
         self.data_other = []       # other inputs passed along with smashed data
         self.data_y = []           # dataset cut-layer true gradients
         self.dataset = None
+=======
+        self.data_x = torch.tensor([], device=device)   # dataset cut-layer activations
+        self.data_labels = torch.tensor([], device=device) # labels corresponding to the data_x
+        self.data_other = []                            # other inputs passed along with smashed data
+        self.data_y = torch.tensor([], device=device)   # dataset cut-layer true gradients
+        self.data_loader = None
+>>>>>>> 6d53ae1947cdd520b0228786671b8802d235df84
         self.align_batch_size = align_batch_size
         self.server = server
         self.device = device
@@ -87,12 +95,31 @@ class AuxiliaryModel(ABC, nn.Module):
                 last point.
         
         '''
+<<<<<<< HEAD
         self.data_y = []
         logging.debug(f"Size of alignment dataset: {len(self.data_x)}")
         for i in range(len(self.data_x)):
             x = self.data_x[i].clone().detach().requires_grad_(True)
             label = self.data_labels[i]
             other_args = [arg[i] for arg in self.data_other]
+=======
+        if all:
+            logging.debug(f"Size of alignment dataset: {self.data_x.shape[0]}")
+            self.server.optimizer.zero_grad()
+            all_ins = self.data_x.clone().detach().requires_grad_(True)
+            all_others = [
+                other_in.clone().detach() for other_in in self.data_other
+            ]
+            all_out = self.server.model(all_ins, *all_others)
+            all_out = all_out[0] if isinstance(all_out, tuple) else all_out
+            all_loss = self.server.criterion(all_out, self.data_labels)
+            all_loss.backward()
+            self.data_y = all_ins.grad.clone().detach()
+            self.server.optimizer.zero_grad()
+        else:
+            #TODO: Implement this part if needed
+            raise Exception("Only all=True supported currently")
+>>>>>>> 6d53ae1947cdd520b0228786671b8802d235df84
 
             self.server.optimizer.zero_grad()
             out = self.server.model(x, *other_args)
@@ -117,8 +144,14 @@ class AuxiliaryModel(ABC, nn.Module):
                 self.data_x, self.data_y, self.data_labels, self.data_other
         )
         self.data_loader = DataLoader(
+<<<<<<< HEAD
             self.dataset, batch_size=self.align_batch_size,
             shuffle=True, pin_memory=False
+=======
+            TensorDataset(
+                self.data_x, self.data_y, self.data_labels, *self.data_other
+            ), shuffle=True, batch_size=self.align_batch_size, pin_memory=False
+>>>>>>> 6d53ae1947cdd520b0228786671b8802d235df84
         )
 
     def get_align_dataset(self):
@@ -143,6 +176,7 @@ class AuxiliaryModel(ABC, nn.Module):
             *other_inputs - other inputs usually passed with smashed data to the
                 server and auxiliary models.
         '''
+<<<<<<< HEAD
         #self.data_x = torch.cat((self.data_x, x), dim=0)
         #self.data_labels = torch.cat((self.data_labels, label), dim=0).long()
         self.data_x.append(x)
@@ -155,6 +189,17 @@ class AuxiliaryModel(ABC, nn.Module):
 
         # maintain size of dataset <= max_data_size
         if len(self.data_x) > self.max_data_size:
+=======
+        self.data_x = torch.cat((self.data_x, x), dim=0)
+        self.data_labels = torch.cat((self.data_labels, label), dim=0).long()
+
+        for i, inp in enumerate(other_inputs):
+            if len(self.data_other) < (i + 1):
+                self.data_other.append(torch.tensor([], device=self.device))
+            self.data_other[i] = torch.cat((self.data_other[i], inp), dim=0)
+
+        if self.data_x.shape[0] > self.max_data_size:
+>>>>>>> 6d53ae1947cdd520b0228786671b8802d235df84
             self.data_x = self.data_x[-self.max_data_size:]
             self.data_labels = self.data_labels[-self.max_data_size:]
             for i in range(len(self.data_other)):
@@ -212,6 +257,7 @@ class GradScalarAuxiliaryModel(AuxiliaryModel):
         bar = trange(self.align_epochs, desc="Alignment", leave=False)
         logging.debug(f"# batches for alignment: {len(self.data_loader)}")
         for i in bar:
+<<<<<<< HEAD
             data_ids = np.random.permutation(len(self.dataset))
             for i in data_ids:
                 data = self.dataset[i]
@@ -219,6 +265,11 @@ class GradScalarAuxiliaryModel(AuxiliaryModel):
                 other_ins = data[3:] if len(data) > 3 else []
                 assert x.shape == y.shape, \
                     f"x shape {x.shape} doesn't match y shape {y.shape}"
+=======
+            for data in self.data_loader:
+                x, y, labels = data[0], data[1], data[2]
+                other_ins = data[3:] if len(data) > 3 else []
+>>>>>>> 6d53ae1947cdd520b0228786671b8802d235df84
                 self.optimizer.zero_grad()
                 loss = self.align_loss(x, y, labels, *other_ins)
                 loss.backward()
