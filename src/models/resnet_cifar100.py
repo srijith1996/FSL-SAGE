@@ -156,8 +156,8 @@ class ResNetServer(nn.Module):
     def __init__(
         self, 
         block : Type[BasicBlock],
-        num_blocks : List[int],
         in_planes : int,
+        num_blocks : List[int],
         num_classes=100,
     ) -> None:
         super(ResNetServer, self).__init__()
@@ -218,29 +218,46 @@ def resnet1202(num_classes=100):
 
 # ------------------------------------------------------------------------------
 def resnet56_sl_client(in_planes=64, **kwargs):
-    return ResNetClient(BasicBlock, [9, 9, 9])
+    return ResNetClient(BasicBlock, num_blocks=[9, 9, 9], in_planes=in_planes)
 
 def resnet56_sl_server(in_planes=64, num_classes=100, **kwargs):
-    return ResNetServer(BasicBlock, [9, 9, 9], num_classes=num_classes)
+    return ResNetServer(
+        BasicBlock, num_blocks=[9, 9, 9], in_planes=in_planes,
+        num_classes=num_classes
+    )
 
 register_client_server_pair('resnet56', resnet56_sl_client, resnet56_sl_server)
 
 # ------------------------------------------------------------------------------
 def resnet110_sl_client(in_planes=64, **kwargs):
-    return ResNetClient(BasicBlock, [18, 18, 18])
+    return ResNetClient(
+        BasicBlock, num_blocks=[18, 18, 18], in_planes=in_planes
+    )
 
 def resnet110_sl_server(in_planes=64, num_classes=100, **kwargs):
-    return ResNetServer(BasicBlock, [18, 18, 18], num_classes=num_classes)
+    return ResNetServer(
+        BasicBlock, num_blocks=[18, 18, 18], in_planes=in_planes,
+        num_classes=num_classes
+    )
 
-register_client_server_pair('resnet110', resnet110_sl_client, resnet110_sl_server)
+register_client_server_pair(
+    'resnet110', resnet110_sl_client, resnet110_sl_server
+)
 
 # ------------------------------------------------------------------------------
-def resnet1202_sl_client():
-    return ResNetClient(BasicBlock, [200, 200, 200])
+def resnet1202_sl_client(in_planes=16, **kwargs):
+    return ResNetClient(
+        BasicBlock, in_planes=in_planes, num_blocks=[200, 200, 200]
+    )
 
-def resnet1202_sl_server(in_planes=64, num_classes=100):
-    return ResNetServer(BasicBlock, [200, 200, 200], num_classes=num_classes)
+def resnet1202_sl_server(in_planes=64, num_classes=100, **kwargs):
+    return ResNetServer(
+        BasicBlock, num_blocks=[200, 200, 200], in_planes=in_planes,
+        num_classes=num_classes
+    )
 
-register_client_server_pair('resnet1202', resnet1202_sl_client, resnet1202_sl_server)
+register_client_server_pair(
+    'resnet1202', resnet1202_sl_client, resnet1202_sl_server
+)
 
 # ------------------------------------------------------------------------------
