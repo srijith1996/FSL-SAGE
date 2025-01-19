@@ -212,13 +212,9 @@ class GradScalarAuxiliaryModel(AuxiliaryModel):
         bar = trange(self.align_epochs, desc="Alignment", leave=False)
         logging.debug(f"# batches for alignment: {len(self.data_loader)}")
         for i in bar:
-            data_ids = np.random.permutation(len(self.dataset))
-            for i in data_ids:
-                data = self.dataset[i]
+            for data in self.data_loader:
                 x, y, labels = data[0], data[1], data[2]
                 other_ins = data[3:] if len(data) > 3 else []
-                assert x.shape == y.shape, \
-                    f"x shape {x.shape} doesn't match y shape {y.shape}"
                 self.optimizer.zero_grad()
                 loss = self.align_loss(x, y, labels, *other_ins)
                 loss.backward()

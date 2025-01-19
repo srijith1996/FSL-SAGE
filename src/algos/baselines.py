@@ -28,6 +28,8 @@ class FedAvg(FLAlgorithm):
             c.lr_scheduler = config_lr_scheduler(
                 c.optimizer, c.lr_scheduler_options
             )
+        else:
+            opt_fn = lambda m: optim.Adam(m.parameters(), lr=self.client_lr)
 
     def full_model(self, x, *args, **kwargs):
         return self.aggregated_client(x, *args, **kwargs)

@@ -123,6 +123,18 @@ def get_dataset(cfg, batch_size=None):
             joint_lm=(cfg.obj == 'jlm')
         )
 
+    elif cfg.name == "nlg_ft":
+        dataDir = '../datas/text_completion'
+
+        trainSet = nlg_ft.FT_Dataset(
+            f'{dataDir}/data/e2e/train.jsonl', batch_size, cfg.seq_len,
+            joint_lm=(cfg.obj == 'jlm')
+        )
+        testSet  = nlg_ft.FT_Dataset(
+            f'{dataDir}/data/e2e/test.jsonl', batch_size, cfg.seq_len,
+            joint_lm=(cfg.obj == 'jlm')
+        )
+
     else:
         exit(f"[ERROR] Unrecognized dataset '{cfg.name}'.")
 

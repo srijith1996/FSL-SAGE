@@ -28,6 +28,10 @@ metric_names:
   - loss
   - accuracy
 
+metric_names:
+  - loss
+  - accuracy
+
 # to prevent logging and working directory creation by hydra
 hydra:  
   output_subdir: null  
