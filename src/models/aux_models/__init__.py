@@ -236,13 +236,7 @@ class GradScalarAuxiliaryModel(AuxiliaryModel):
         bar = trange(self.align_epochs, desc="Alignment", leave=False)
         logging.debug(f"# batches for alignment: {len(self.align_dataloader)}")
         for i in bar:
-<<<<<<< HEAD
-            data_ids = np.random.permutation(len(self.dataset))
-            for i in data_ids:
-                data = self.dataset[i]
-=======
             for data in self.align_dataloader:
->>>>>>> 90afb23 (Fix auxiliary alignment dataset to make all algs work for image classification)
                 x, y, labels = data[0], data[1], data[2]
                 other_ins = data[3:] if len(data) > 3 else []
                 assert x.shape == y.shape, \

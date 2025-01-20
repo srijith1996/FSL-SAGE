@@ -191,51 +191,6 @@ class Server():
         else:
             self.criterion = nn.NLLLoss().to(device)
 
-    def forward(self, pred, target, mask=None):
-
-        _batch, _len = pred.shape[:2]
-        logprobs = torch.nn.functional.log_softmax(pred.view(-1, pred.size(-1)), dim=-1)
-        nll_loss = -logprobs.gather(dim=-1, index=target.view(-1).unsqueeze(1))
-        nll_loss = nll_loss.squeeze(1)
-        smooth_loss = -logprobs.mean(dim=-1)
-        loss = (1.0 - self.smoothing) * nll_loss + self.smoothing * smooth_loss
-        loss = loss.view(_batch, _len)
- 
-        if mask is None:
-            mask = torch.ones(
-                loss.shape, dtype=loss.dtype, device=loss.device
-            )
-
-        loss = loss * mask 
-        return loss.sum() / (mask.sum() + 0.0001)
-
-# -----------------------------------------------------------------------------
-class Server():
-    model: nn.Module
-    criterion : Callable
-    optimizer : Any
-    alignment_loss: Callable
-
-    def __init__(self, server, cfg, device='cpu'):
-        self.model = server
-
-        if 'label_smooth' not in cfg:
-            with open_dict(cfg): cfg['label_smooth'] = 0.0
-        self.criterion = MaskingCrossEntropyLoss(smoothing=cfg.label_smooth)
-        self.alignment_loss = nn.MSELoss().to(device)
-
-        if 'optimizer' in cfg:
-            with open_dict(cfg): cfg.optimizer['lr'] = cfg.lr
-            self.optimizer = opt_utils.create_adam_optimizer_from_args(
-                self.model, cfg.optimizer,
-                grouped_parameters=None
-            )
-        else:
-            self.optimizer = Adam(
-                self.model.parameters(),
-                lr=cfg.lr
-            )
-
 # -----------------------------------------------------------------------------
 # Automatically import any Python files in the models/ directory
 for file in os.listdir(os.path.dirname(__file__)):
