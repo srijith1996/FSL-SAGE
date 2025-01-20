@@ -18,3 +18,12 @@ options:
   lora_dropout: 0.0
   lora_r_dropout: 0.0
   fix_dropout: 0.0
+
+optimizer: 
+  name: adamw
+  no_decay_bias  : false
+  options:
+    weight_decay : 0.01
+    correct_bias : true
+    eps          : 1e-6
+    betas        : [0.9, 0.98]

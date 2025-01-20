@@ -55,7 +55,6 @@ class GPT2LMAuxiliaryModel(aux_models.GradScalarAuxiliaryModel):
         self.transformer = GPT2AuxiliaryModel(config)
         self.lm_head = GPT2LMHead(decoder_weights, config)
         self.apply(self._init_weights)
-        self.set_optimizer(align_step)
 
     def forward_inner(self, *args, **kwargs):
         # args : hidden_states, presents, input_shape, past, past_len

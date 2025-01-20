@@ -91,9 +91,17 @@ def check_and_mark_lora_trainable(cfg, server, clients):
 
     logging.info("After marking LoRA only as trainable:-")
     tr_p, all_p = utils.count_trainable_params(clients[0].model)
-    logging.info(f"> Client: # trainable params: {tr_p}, Total # params: {all_p}, Fraction trainable: {(tr_p/all_p * 100.0):.2f}%")
+    logging.info(
+        f"--> Client: # trainable params: {tr_p}, " + 
+        f"Total # params: {all_p}, " + 
+        f"Fraction trainable: {(tr_p/all_p * 100.0):.2f}%"
+    )
     tr_p, all_p = utils.count_trainable_params(server.model)
-    logging.info(f"> Server: # trainable params: {tr_p}, Total # params: {all_p}, Fraction trainable: {(tr_p/all_p * 100.0):.2f}%")
+    logging.info(
+        f"--> Server: # trainable params: {tr_p}, " +
+        f"Total # params: {all_p}, " +
+        f"Fraction trainable: {(tr_p/all_p * 100.0):.2f}%"
+    )
         
 # -----------------------------------------------------------------------------
 def model_constructors(cfg) -> Callable:
@@ -143,7 +151,7 @@ def setup_server_and_clients(
     # init server object 
     server = Server(
         server_constructor(**client_server_params), cfg.model.server,
-        device=global_torch_device
+        device=global_torch_device, problem_type=cfg.dataset.problem.name
     )
     server.model.to(global_torch_device)
 

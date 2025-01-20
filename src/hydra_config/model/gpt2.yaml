@@ -24,22 +24,24 @@ options:
 
 client:
   epoch      : 1
-  batch_size : 128
+  batch_size : 96
   lr         : 0.00001
   optimizer: 
-    weight_decay : 0.01
-    correct_bias : true
-    adam_epsilon : 1e-6
+    name         : adamw
     no_decay_bias: false
-    adam_beta1   : 0.9
-    adam_beta2   : 0.98
+    options:
+      weight_decay : 0.01
+      correct_bias : true
+      eps          : 1e-6
+      betas        : [0.9, 0.98]
 
 server:
   lr : 0.00001
   optimizer: 
-    weight_decay : 0.01
-    correct_bias : true
-    adam_epsilon : 1e-6
+    name         : adamw
     no_decay_bias: false
-    adam_beta1   : 0.9
-    adam_beta2   : 0.98
+    options:
+      weight_decay : 0.01
+      correct_bias : true
+      eps          : 1e-6
+      betas        : [0.9, 0.98]

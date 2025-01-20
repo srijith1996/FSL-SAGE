@@ -23,13 +23,12 @@ class FedAvg(FLAlgorithm):
         for c in self.clients:
             c.model = model_utils.ClientServerSequential(c.model, self.server.model)
             c.optimizer = config_optimizer(
-                c.model.parameters(), c.optimizer_options
+                c.model, c.optimizer_options,
+                no_decay_bias=c.optimizer_no_decay_bias
             )
             c.lr_scheduler = config_lr_scheduler(
                 c.optimizer, c.lr_scheduler_options
             )
-        else:
-            opt_fn = lambda m: optim.Adam(m.parameters(), lr=self.client_lr)
 
     def full_model(self, x, *args, **kwargs):
         return self.aggregated_client(x, *args, **kwargs)
@@ -74,8 +73,9 @@ class SplitFedv2(FLAlgorithm):
         # Comm cost for upload splitting output to server
         self.comm_load += smashed_data.numel() * smashed_data.element_size() 
 
-        output = self.server.model(smashed_data) 
-        loss = self.server.criterion(output, y, *args)
+        out = self.server.model(smashed_data) 
+        out = out[0] if isinstance(out, tuple) else out
+        loss = self.server.criterion(out, y, *args)
 
         with torch.no_grad():
             train_loss = loss.item()

@@ -185,6 +185,7 @@ def evaluate(
                 data, device, problem_type, use_64bit
             )
             out = model(x)
+            out = out[0] if isinstance(out, tuple) else out
             for v in metric_fns.values():
                 v.update(out, y)
 
@@ -285,12 +286,12 @@ def run_fl_algorithm(
             cfg.comm_threshold_mb = np.inf
 
     comm_load = []
-    metric_lists = {k: [] for k in cfg.metric_names}
+    metric_lists = {k: [] for k in cfg.dataset.problem.metric_names}
     metric_fns = {
         k: met_utils.METRIC_FUNCTION_DICT[k]
-        for k in cfg.metric_names if k != 'loss'
+        for k in cfg.dataset.problem.metric_names if k != 'loss'
     }
-    if 'loss' in cfg.metric_names:
+    if 'loss' in cfg.dataset.problem.metric_names:
         metric_fns['loss'] = met_utils.LossMetric(server.criterion)
 
     train_metrics = [{} for _ in range(cfg.num_clients)]
@@ -368,7 +369,7 @@ def run_fl_algorithm(
             alg.eval_mode()
             metrics = evaluate(
                 alg.full_model, test_loader, metric_fns=metric_fns,
-                problem_type=cfg.dataset.problem_type, 
+                problem_type=cfg.dataset.problem.name, 
                 use_64bit=cfg.use_64bit, device=torch_device
             )
 

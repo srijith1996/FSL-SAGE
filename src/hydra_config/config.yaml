@@ -24,10 +24,6 @@ checkpoint_interval : 5
 
 comm_threshold_mb : 204800  # corresponds to 200 GiB
 
-metric_names:
-  - loss
-  - accuracy
-
 # to prevent logging and working directory creation by hydra
 hydra:  
   output_subdir: null  

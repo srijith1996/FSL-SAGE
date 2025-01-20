@@ -62,11 +62,35 @@ def model_package(model_name: str, aux_model_name: str) -> ModelPackage:
     return model_pack
 
 # ------------------------------------------------------------------------------
-def config_optimizer(params, cfg):
+# https://github.com/microsoft/LoRA/blob/main/examples/NLG/src/optimizer.py
+def create_grouped_parameters(model, no_decay_bias): # args):
+    if not no_decay_bias:
+        optimizer_grouped_parameters = [{
+            "params": [p for n, p in model.named_parameters()],
+        }]
+    else:
+        no_decay = ["bias", "layer_norm.weight"]
+
+        optimizer_grouped_parameters = [{
+            "params": [p for n, p in model.named_parameters() \
+                if not any(nd in n for nd in no_decay)],
+        }, {
+            "params": [p for n, p in model.named_parameters() \
+                if any(nd in n for nd in no_decay)], 
+            "weight_decay": 0.0,
+        }]
+    return optimizer_grouped_parameters
+
+# ------------------------------------------------------------------------------
+def config_optimizer(model, cfg, no_decay_bias=False):
+
+    params = create_grouped_parameters(model, no_decay_bias)
     if cfg.name == 'adam':
         optim = torch.optim.Adam
     elif cfg.name == 'sgd':
         optim = torch.optim.SGD
+    elif cfg.name == 'adamw':
+        optim = opt_utils.AdamW
     else:
         raise Exception(f"Optimizer {cfg.name} is not configured.")
 
@@ -101,13 +125,18 @@ class Client():
         self.model = client 
 
         self.optimizer = config_optimizer(
-            self.model.parameters(), cfg_model.optimizer
+            self.model, cfg_model.optimizer,
+            no_decay_bias=cfg_model.no_decay_bias \
+                if 'no_decay_bias' in cfg_model.keys() else False
         )
         self.optimizer_options = cfg_model.optimizer
+        self.optimizer_no_decay_bias = cfg_model.no_decay_bias \
+            if 'no_decay_bias' in cfg_model.keys() else False
 
         self.lr_scheduler = config_lr_scheduler(
             self.optimizer, cfg_model.lr_scheduler
-        ) if "lr_scheduler" in cfg_model and cfg_model.lr_scheduler else None
+        ) if "lr_scheduler" in cfg_model and cfg_model.lr_scheduler \
+            else None
         self.lr_scheduler_options = cfg_model.lr_scheduler \
             if "lr_scheduler" in cfg_model else None
 
@@ -120,8 +149,10 @@ class Client():
 
         # optimizer and lr schedules for the auxiliary model
         self.aux_optimizer = config_optimizer(
-                self.auxiliary_model.parameters(), cfg_aux.optimizer
-            )
+            self.auxiliary_model, cfg_aux.optimizer,
+            no_decay_bias=cfg_aux.no_decay_bias \
+                if 'no_decay_bias' in cfg_aux.keys() else False
+        )
         self.auxiliary_model.set_optimizer_lr_scheduler(
             self.aux_optimizer, config_lr_scheduler(
                 self.aux_optimizer, cfg_aux.lr_scheduler
@@ -146,8 +177,12 @@ class MaskingCrossEntropyLoss(nn.Module):
     def forward(self, pred, target, mask=None):
 
         _batch, _len = pred.shape[:2]
-        logprobs = torch.nn.functional.log_softmax(pred.view(-1, pred.size(-1)), dim=-1)
-        nll_loss = -logprobs.gather(dim=-1, index=target.view(-1).unsqueeze(1))
+        logprobs = torch.nn.functional.log_softmax(
+            pred.view(-1, pred.size(-1)), dim=-1
+        )
+        nll_loss = -logprobs.gather(
+            dim=-1, index=target.view(-1).unsqueeze(1)
+        )
         nll_loss = nll_loss.squeeze(1)
         smooth_loss = -logprobs.mean(dim=-1)
         loss = (1.0 - self.smoothing) * nll_loss + self.smoothing * smooth_loss
@@ -175,7 +210,9 @@ class Server():
         self.alignment_loss = nn.MSELoss().to(device)
 
         self.optimizer = config_optimizer(
-            self.model.parameters(), cfg.optimizer
+            self.model, cfg.optimizer,
+            no_decay_bias=cfg.no_decay_bias \
+                if 'no_decay_bias' in cfg.keys() else False
         )
         self.optimizer_options = cfg.optimizer
 

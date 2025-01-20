@@ -1,3 +1,6 @@
+defaults:
+  - problem : text_2_text
+
 name: nlg_ft
 distribution: iid
 seq_len: 512
