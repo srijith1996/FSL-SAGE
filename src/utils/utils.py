@@ -225,6 +225,7 @@ class Checkpointer():
         server.optimizer.load_state_dict(chkpt.server_optimizer)
 
         return chkpt.round, server, clients, {chkpt.metric_name: chkpt.metric_val}
+
 def count_trainable_params(model: nn.Module):
     trainable_params = 0
     all_params = 0
