@@ -1,4 +1,5 @@
 # ------------------------------------------------------------------------------
+import sys
 from abc import ABC, abstractmethod
 from typing import Dict, List, Callable
 import os, importlib
@@ -140,6 +141,20 @@ def register_algorithm(name):
         ALGORITHM_REGISTRY[name] = cls
         return cls
     return register_alg_cls
+
+# ------------------------------------------------------------------------------
+def get_auxlist_memory_consumption(aux_list):
+    size = 0        # in bytes
+    for el in aux_list:
+        if isinstance(el, torch.Tensor):
+            size += el.numel() * el.element_size()
+        elif isinstance(el, torch.Size):
+            size += el.numel() * sys.getsizeof(el[0])
+        elif isinstance(el, (list, tuple)):
+            size += get_auxlist_memory_consumption(el)
+        else:
+            size += sys.getsizeof(el)
+    return size
 
 # -----------------------------------------------------------------------------
 # Automatically import any Python files in the models/ directory

@@ -2,11 +2,12 @@
 import copy
 import torch.nn as nn
 import torch
-from torch import optim
-from functools import partial
-from utils import opt_utils, model_utils
+from utils import model_utils
 
-from algos import register_algorithm, aggregate_models, FLAlgorithm
+from algos import (
+    register_algorithm, aggregate_models, FLAlgorithm,
+    get_auxlist_memory_consumption
+)
 from models import config_optimizer, config_lr_scheduler
 
 # ------------------------------------------------------------------------------
@@ -57,7 +58,9 @@ class FedAvg(FLAlgorithm):
 class SplitFedv2(FLAlgorithm):
 
     def full_model(self, x):
-        return self.server.model(self.aggregated_client(x))
+        cl_out = self.aggregated_client(x)
+        return self.server.model(*cl_out) if isinstance(cl_out, tuple) \
+            else self.server.model(cl_out)
 
     def client_step(self, rd_cl_ep_it, x, y, *args):
         t, i, j, k = rd_cl_ep_it
@@ -65,15 +68,25 @@ class SplitFedv2(FLAlgorithm):
         self.server.optimizer.zero_grad()
 
         # pass smashed data through full model 
-        splitting_output = self.clients[i].model(x)
+        splitting_outputs = self.clients[i].model(x)
+        splitting_output = splitting_outputs[0] \
+            if isinstance(splitting_outputs, tuple) else splitting_outputs
 
         # Represents the uploaded data
         smashed_data = splitting_output.clone().detach().requires_grad_(True)
 
         # Comm cost for upload splitting output to server
+        aux_ins_cond = (
+            isinstance(splitting_outputs, tuple) and len(splitting_outputs) > 1
+        )
         self.comm_load += smashed_data.numel() * smashed_data.element_size() 
+        if aux_ins_cond:
+            self.comm_load += get_auxlist_memory_consumption(
+                splitting_outputs[1:]
+            )
 
-        out = self.server.model(smashed_data) 
+        aux_ins = splitting_outputs[1:] if aux_ins_cond else []
+        out = self.server.model(smashed_data, *aux_ins)
         out = out[0] if isinstance(out, tuple) else out
         loss = self.server.criterion(out, y, *args)
 
@@ -85,7 +98,8 @@ class SplitFedv2(FLAlgorithm):
         loss.backward()
 
         # Comm cost for downloading grads of smashed data
-        self.comm_load += smashed_data.grad.numel() * smashed_data.grad.element_size()
+        self.comm_load += smashed_data.grad.numel() * \
+            smashed_data.grad.element_size()
 
         # Backprop split output with smashed data grad
         splitting_output.backward(smashed_data.grad)
@@ -112,7 +126,9 @@ class SplitFedv1(FLAlgorithm):
             self.servers.append(copy.deepcopy(self.server))
 
     def full_model(self, x):
-        return self.aggregated_server(self.aggregated_client(x))
+        cl_out = self.aggregated_client(x)
+        return self.server.model(*cl_out) if isinstance(cl_out, tuple) \
+            else self.server.model(cl_out)
 
     def special_models_train_mode(self, t):
         if t > 0: self.aggregated_server.train()
@@ -127,16 +143,27 @@ class SplitFedv1(FLAlgorithm):
         self.servers[i].optimizer.zero_grad()
 
         # pass smashed data through full model 
-        splitting_output = self.clients[i].model(x)
+        splitting_outputs = self.clients[i].model(x)
+        splitting_output = splitting_outputs[0] \
+            if isinstance(splitting_outputs, tuple) else splitting_outputs
 
         # Represents the uploaded data
         smashed_data = splitting_output.clone().detach().requires_grad_(True)
 
         # Upload the smashed data to the server
+        aux_ins_cond = (
+            isinstance(splitting_outputs, tuple) and len(splitting_outputs) > 1
+        )
         self.comm_load += smashed_data.numel() * smashed_data.element_size() 
+        if aux_ins_cond:
+            self.comm_load += get_auxlist_memory_consumption(
+                splitting_outputs[1:]
+            )
 
-        output = self.servers[i].model(smashed_data) 
-        loss = self.criterion(output, y, *args)
+        aux_ins = splitting_outputs[1:] if aux_ins_cond else []
+        out = self.servers[i].model(smashed_data, *aux_ins)
+        out = out[0] if isinstance(out, tuple) else out
+        loss = self.criterion(out, y, *args)
 
         with torch.no_grad():
             train_loss = loss.item()
@@ -146,7 +173,8 @@ class SplitFedv1(FLAlgorithm):
         loss.backward()
 
         # Download gradients of the smashed data
-        self.comm_load += smashed_data.grad.numel() * smashed_data.grad.element_size() 
+        self.comm_load += smashed_data.grad.numel() * \
+            smashed_data.grad.element_size()
 
         # Backprop grads back to splitting_output
         splitting_output.backward(smashed_data.grad)

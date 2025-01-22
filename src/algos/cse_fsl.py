@@ -1,7 +1,10 @@
 # ------------------------------------------------------------------------------
 import torch
 from utils.utils import calculate_load
-from algos import register_algorithm, aggregate_models, FLAlgorithm
+from algos import (
+    register_algorithm, aggregate_models, FLAlgorithm,
+    get_auxlist_memory_consumption
+)
 from models.aux_models import AuxiliaryModel
 
 # ------------------------------------------------------------------------------
@@ -16,7 +19,9 @@ class CSEFSL(FLAlgorithm):
         self.iters_per_epoch = [len(c.train_loader) for c in self.clients]
 
     def full_model(self, x):
-        return self.server.model(self.aggregated_client(x))
+        cl_out = self.aggregated_client(x)
+        return self.server.model(*cl_out) if isinstance(cl_out, tuple) \
+            else self.server.model(cl_out)
 
     def special_models_train_mode(self, t):
         if t > 0: self.aggregated_auxiliary.train()
@@ -34,22 +39,33 @@ class CSEFSL(FLAlgorithm):
         self.clients[i].auxiliary_model.optimizer.zero_grad()
 
         # client feedforward
-        splitting_output = self.clients[i].model(x)
-        local_smashed_data = splitting_output.clone().detach().requires_grad_(True)
+        splitting_outputs = self.clients[i].model(x)
+        splitting_output = splitting_outputs[0] \
+            if isinstance(splitting_outputs, tuple) else splitting_outputs
+
+        local_smashed_data = splitting_output.clone(
+            ).detach().requires_grad_(True)
         smashed_data = splitting_output.clone().detach().requires_grad_(True)
 
         # client backpropagation and update client-side model weights
-        out = self.clients[i].auxiliary_model.forward_inner(local_smashed_data) 
+        aux_ins_cond = (
+            isinstance(splitting_outputs, tuple) and len(splitting_outputs) > 1
+        )
+        aux_ins = splitting_outputs[1:] if aux_ins_cond else []
+        out = self.clients[i].auxiliary_model.forward_inner(
+            local_smashed_data, *aux_ins
+        )
+        out = out[0] if isinstance(out, tuple) else out
         loss = self.criterion(out, y, *args)
         loss.backward()
 
         ret_dict = dict()
         with torch.no_grad():
             local_loss = loss.item()
-            _, predicted = torch.max(out.data, 1)
-            local_correct = predicted.eq(y.view_as(predicted)).sum().item()
+            #_, predicted = torch.max(out.data, 1)
+            #local_correct = predicted.eq(y.view_as(predicted)).sum().item()
             ret_dict['l_loss'] = local_loss
-            ret_dict['l_acc'] = local_correct / y.size(dim=0)
+            #ret_dict['l_acc'] = local_correct / y.size(dim=0)
 
         self.clients[i].auxiliary_model.optimizer.step()
         splitting_output.backward(local_smashed_data.grad)
@@ -59,17 +75,22 @@ class CSEFSL(FLAlgorithm):
         local_iter = j * self.iters_per_epoch[i] + k
         if local_iter % self.server_update_interval == 0:
             self.comm_load += smashed_data.numel() * smashed_data.element_size()
+            if aux_ins_cond:
+                self.comm_load += get_auxlist_memory_consumption(
+                    splitting_outputs[1:]
+                )
 
             self.server.optimizer.zero_grad()
-            out = self.server.model(smashed_data)
-            s_loss = self.criterion(out, y)
+            out = self.server.model(smashed_data, *aux_ins)
+            out = out[0] if isinstance(out, tuple) else out
+            s_loss = self.criterion(out, y, *args)
 
             with torch.no_grad():
                 global_loss = s_loss.item()
-                _, predicted = torch.max(out.data, 1)
-                global_correct = predicted.eq(y.view_as(predicted)).sum().item()
+                #_, predicted = torch.max(out.data, 1)
+                #global_correct = predicted.eq(y.view_as(predicted)).sum().item()
                 ret_dict['g_loss'] = global_loss
-                ret_dict['g_acc'] = global_correct / y.size(dim=0)
+                #ret_dict['g_acc'] = global_correct / y.size(dim=0)
 
             s_loss.backward()
             self.server.optimizer.step()

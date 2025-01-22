@@ -1,7 +1,9 @@
 # ------------------------------------------------------------------------------
 import torch
 from utils.utils import calculate_load
-from algos import register_algorithm, FLAlgorithm
+from algos import (
+    register_algorithm, FLAlgorithm, get_auxlist_memory_consumption
+)
 
 # ------------------------------------------------------------------------------
 @register_algorithm("fsl_sage")
@@ -15,7 +17,9 @@ class FSLSAGE(FLAlgorithm):
         self.iters_per_epoch = [len(c.train_loader) for c in self.clients]
 
     def full_model(self, x):
-        return self.server.model(self.aggregated_client(x))
+        cl_out = self.aggregated_client(x)
+        return self.server.model(*cl_out) if isinstance(cl_out, tuple) \
+            else self.server.model(cl_out)
 
     def special_models_train_mode(self, t):
         for c in self.clients: c.auxiliary_model.train()
@@ -30,17 +34,17 @@ class FSLSAGE(FLAlgorithm):
         self.clients[i].optimizer.zero_grad()
 
         # client feedforward
-        client_outs = self.clients[i].model(x)
-
-        if isinstance(client_outs, tuple):
-            splitting_output = client_outs[0]
-            client_server_args = list(client_outs)[1:]
-        else:
-            splitting_output = client_outs
-            client_server_args = []
+        splitting_outputs = self.clients[i].model(x)
+        splitting_output = splitting_outputs[0] \
+            if isinstance(splitting_outputs, tuple) else splitting_outputs
 
         local_smashed_data = splitting_output.clone(
             ).detach().requires_grad_(True)
+
+        aux_ins_cond = (
+            isinstance(splitting_outputs, tuple) and len(splitting_outputs) > 1
+        )
+        aux_ins = splitting_outputs[1:] if aux_ins_cond else []
 
         # server model update
         local_iter = j * self.iters_per_epoch[i] + k
@@ -50,15 +54,14 @@ class FSLSAGE(FLAlgorithm):
                 ).detach().requires_grad_(True)
             self.comm_load += smashed_data.numel() \
                 * smashed_data.element_size()
+            if aux_ins_cond:
+                self.comm_load += get_auxlist_memory_consumption(
+                    splitting_outputs[1:]
+                )
 
             self.server.optimizer.zero_grad()
-            server_outs = self.server.model(smashed_data, *client_server_args)
-            if isinstance(server_outs, tuple):
-                out = server_outs[0]
-                rem_outs = list(server_outs)[1:]
-            else:
-                out = server_outs
-
+            out = self.server.model(smashed_data, *aux_ins)
+            out = out[0] if isinstance(out, tuple) else out
             s_loss = self.criterion(out, y, *args)
 
             with torch.no_grad():
@@ -73,7 +76,7 @@ class FSLSAGE(FLAlgorithm):
 
             # save smashed data to memory
             self.clients[i].auxiliary_model.add_datapoint(
-                splitting_output.clone().detach(), y, *client_server_args
+                splitting_output.clone().detach(), y, *aux_ins
             )
 
         # perform alignment for current client
@@ -87,16 +90,12 @@ class FSLSAGE(FLAlgorithm):
             )
 
         # client backpropagation and update client-side model weights
-        aux_outs = self.clients[i].auxiliary_model.forward_inner(
-            local_smashed_data, *client_server_args
+        out = self.clients[i].auxiliary_model.forward_inner(
+            local_smashed_data, *aux_ins
         )
-        if isinstance(aux_outs, tuple):
-            out = aux_outs[0]
-            rem_outs = list(aux_outs)[1:]
-        else:
-            out = aux_outs
-
+        out = out[0] if isinstance(out, tuple) else out
         loss = self.criterion(out, y, *args)
+
         loss.backward()
         splitting_output.backward(local_smashed_data.grad)
         self.clients[i].optimizer.step()
