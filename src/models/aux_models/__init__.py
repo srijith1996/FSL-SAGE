@@ -1,79 +1,23 @@
 # ------------------------------------------------------------------------------
 from abc import ABC, abstractmethod
-import os, importlib
 from tqdm import trange
 import logging
-from typing import Dict
-import numpy as np
+from typing import Dict, Type
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch import optim
-from torch.utils.data import DataLoader, TensorDataset, Dataset
-
-# ------------------------------------------------------------------------------
-class RefreshDataset(Dataset):
-    def __init__(self,
-        inputs, labels, aux_inputs_list, max_dataset_size
-    ):
-
-        self.inputs = inputs
-        self.labels = labels
-        self.aux_inputs_list = aux_inputs_list
-        self.max_data_size = max_dataset_size
-        self.maintain_size()
-
-    def __len__(self):
-        return len(self.inputs)
-
-    def __getitem__(self, idx):
-        aux_inputs = [aux[idx] for aux in self.aux_inputs_list]
-        return self.inputs[idx], self.labels[idx], *aux_inputs
-
-    def append(self, inputs, labels, aux_inputs_list):
-        self.inputs = torch.cat((self.inputs, inputs), axis=0)
-        self.labels = torch.cat((self.labels, labels), axis=0)
-        for i, aux_ins in enumerate(aux_inputs_list):
-            self.aux_inputs_list[i] = torch.cat(
-                (self.aux_inputs_list[i], aux_ins), axis=0
-            )
-        self.maintain_size()
-
-    def maintain_size(self):
-        self.inputs = self.inputs[-self.max_data_size:]
-        self.labels = self.labels[-self.max_data_size:]
-        for i in range(len(self.aux_inputs_list)):
-            self.aux_inputs_list[i] = self.aux_inputs_list[i][
-                -self.max_data_size:
-            ]
-
-# ------------------------------------------------------------------------------
-class AlignDataset(Dataset):
-    def __init__(self, inputs, outputs, labels, aux_inputs_list, safe_len=None):
-        if safe_len is None:
-            safe_len = len(inputs)
-        self.safe_len = safe_len
-
-        self.inputs = inputs
-        self.outputs = outputs
-        self.labels = labels
-        self.aux_inputs_list = aux_inputs_list
-
-    def __len__(self):
-        return len(self.inputs)
-
-    def __getitem__(self, idx):
-        aux_inputs = [aux[idx] for aux in self.aux_inputs_list]
-        return self.inputs[idx], self.outputs[idx], \
-            self.labels[idx], *aux_inputs
+from torch.utils.data import DataLoader
+from models.aux_models.ds_utils import (
+    RefreshDataset, AlignDataset, AuxBatchHandler
+)
 
 # ------------------------------------------------------------------------------
 class AuxiliaryModel(ABC, nn.Module):
 
     def __init__(self,
-        server, device='cpu', max_dataset_size=1000,
-        align_batch_size=100
+        server, device='cpu', max_dataset_size=1000, align_batch_size=100,
+        aux_batch_handler_class:Type[AuxBatchHandler]=None
     ):
         '''Base class for Auxiliary models.
         
@@ -84,6 +28,8 @@ class AuxiliaryModel(ABC, nn.Module):
             device - torch device to use
             max_dataset_size - Maximum number of alignment points to store
             align_batch_size - batch-size for alignment loop
+            aux_batch_handler_class - Class invocation for handling auxiliary
+                inputs that need to be saved in the refresh and align datasets.
 
         Attributes
         ----------
@@ -98,6 +44,7 @@ class AuxiliaryModel(ABC, nn.Module):
         self.align_dataloader = None
         self.align_batch_size = align_batch_size
         self.server = server
+        self.aux_batch_handler_class = aux_batch_handler_class
         self.device = device
 
     @abstractmethod
@@ -128,7 +75,8 @@ class AuxiliaryModel(ABC, nn.Module):
         
         for i, data in enumerate(DataLoader(
             self.refresh_dataset, batch_size=self.align_batch_size,
-            pin_memory=False, shuffle=False
+            pin_memory=False, shuffle=False,
+            collate_fn=self.refresh_dataset.collate_fn
         )):
             x, label = data[0], data[1]
             aux_ins = data[2:] if len(data) > 2 else []
@@ -142,14 +90,10 @@ class AuxiliaryModel(ABC, nn.Module):
             data_y = y_ if i == 0 else torch.cat((data_y, y_), axis=0)
             self.server.optimizer.zero_grad()
 
-        align_dataset = AlignDataset(
-            self.refresh_dataset.inputs, data_y,
-            self.refresh_dataset.labels,
-            self.refresh_dataset.aux_inputs_list
-        )
+        align_dataset = AlignDataset(self.refresh_dataset, data_y)
         self.align_dataloader = DataLoader(
             align_dataset, batch_size=self.align_batch_size,
-            shuffle=True, pin_memory=False
+            shuffle=True, pin_memory=False, collate_fn=align_dataset.collate_fn
         )
 
     #def get_align_dataset(self):
@@ -179,10 +123,11 @@ class AuxiliaryModel(ABC, nn.Module):
 
         if self.refresh_dataset is None:
             self.refresh_dataset = RefreshDataset(
-                x, label, other_inputs, self.max_data_size
+                x, label, self.max_data_size, other_inputs,
+                self.aux_batch_handler_class
             )
         else:
-            self.refresh_dataset.append(x, label, other_inputs)
+            self.refresh_dataset.update(x, label, other_inputs)
 
         assert len(self.refresh_dataset) <= self.max_data_size,\
             "Error in <add_datapoint>: Dataset size has exceeded limit"
@@ -212,10 +157,11 @@ class GradScalarAuxiliaryModel(AuxiliaryModel):
 
     def __init__(self,
         server, device='cpu', align_epochs=5, align_batch_size=100,
-        max_dataset_size=1000
+        max_dataset_size=1000, aux_batch_handler_class=None
     ):
         super(GradScalarAuxiliaryModel, self).__init__(
-            server, device, max_dataset_size, align_batch_size
+            server, device, max_dataset_size, align_batch_size,
+            aux_batch_handler_class
         )
         self.align_epochs = align_epochs
 
