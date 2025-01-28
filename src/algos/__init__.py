@@ -7,7 +7,6 @@ import logging, copy
 from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 from dataclasses import dataclass
-from tqdm import tqdm
 from tqdm.contrib.logging import logging_redirect_tqdm
 import numpy as np
 import torch
@@ -184,11 +183,11 @@ for file in os.listdir(os.path.dirname(__file__)):
 # ------------------------------------------------------------------------------
 @dataclass
 class FLResults():
-    server      : Server   
-    client_list : List[Client]
+    server_model  : nn.Module
+    client_model  : nn.Module
     train_metrics : Dict[str, List]
-    comm_load   : List[float]
-    metric_lists : Dict[str, List]
+    comm_load     : List[float]
+    metric_lists  : Dict[str, List]
 
 # ------------------------------------------------------------------------------
 def prepare_batch(data, torch_device, task, use_64bit=False):
@@ -292,6 +291,112 @@ def log_and_step_lr_per_client(i, alg, alg_name):
     return lr_dict, log_dict
 
 # ------------------------------------------------------------------------------
+def log_and_step_lr_per_iter(i, alg, alg_name):
+
+    # for client model
+    lr_dict = {f"client_lr" : take_lr_step(alg.clients[i])}
+    log_dict = {}
+    log_dict[f'Clients/client_{i}/cl_model_lr'] = lr_dict['client_lr']
+
+    # for server model(s) is multi_server
+    if alg_name == 'sl_multi_server':
+        lr_dict[f'server_{i}_lr'] = take_lr_step(alg.servers[i])
+        log_dict[f'Server/server_{i}/server_lr'] = lr_dict[f'server_{i}_lr']
+
+    # for auxiliary models. For fsl_sage, the optimization happens within the
+    # align() method.
+    if alg_name == 'cse_fsl':
+        lr_dict['aux_lr'] = take_lr_step(alg.clients[i].auxiliary_model)
+
+    # log auxiliary model learning rate for fsl algorithms
+    if alg_name == 'cse_fsl' or alg_name =='fsl_sage':
+        log_dict.update({f'Clients/client_{i}/aux_model/aux_model_lr': \
+            alg.clients[i].auxiliary_model.optimizer.param_groups[0]['lr']
+        })
+
+    if alg.server_updated and alg_name not in ['fed_avg', 'sl_multi_server']:
+        lr_dict.update({"server_lr": take_lr_step(alg.server)})
+        log_dict.update({f'Server/server_lr':
+            alg.server.optimizer.param_groups[0]['lr']
+        })
+
+    #print(lr_dict)
+    return lr_dict, log_dict
+
+# ------------------------------------------------------------------------------
+def train_clients(t, cfg, alg, clients, train_metrics, torch_device):
+
+    log_dict = {}    
+
+    with tqdm(
+        range(cfg.num_clients), unit="cl", desc="Client", leave=False,
+        colour='blue'
+    ) as pbar:
+        for i in pbar:
+            tr_mets = {}
+            for j in tqdm(
+                range(clients[i].epochs), unit="ep", desc="Local epoch",
+                leave=False
+            ):
+                with tqdm(
+                    clients[i].train_loader, unit="batch",
+                    desc="Local batch", leave=False
+                ) as pbar_local:
+                    for k, data in enumerate(pbar_local):
+                        x, y, args = prepare_batch(
+                            data, torch_device, cfg.use_64bit
+                        )
+
+                        # take client step
+                        #bef_cl = torch.cuda.memory_allocated(1)
+                        #print("<algs> Bef client step: ", bef_cl)
+                        tr_metrics = alg.client_step((t, i, j, k), x, y, *args)
+                        #aft_cl = torch.cuda.memory_allocated(1)
+                        #print("<algs> Aft client step: ", aft_cl, " delta: ", (aft_cl - bef_cl))
+
+                        pbar_local.set_postfix(**tr_metrics)
+                        if j == 0 and k == 0:
+                            tr_mets = {
+                                k: [v] for k, v in tr_metrics.items()
+                            }
+                        else:
+                            [tr_mets[k].append(v) for k, v in
+                            tr_metrics.items()]
+
+                        # take learning rate steps per iteration
+                        if cfg.model.lr_step_per_iter:
+                            #print("changing lr at each iter")
+                            lr_dict, log_dict_ = \
+                                log_and_step_lr_per_iter(
+                                    i, alg, cfg.algorithm.name
+                                )
+
+            # compute mean of metrics
+            tr_mets = {k: np.mean(v) for k, v in tr_mets.items()}
+            if t == 0:
+                train_metrics[i] = {
+                    k: [v] for k, v in tr_mets.items()
+                }
+            else:
+                [train_metrics[i][k].append(v) for k, v in
+                tr_mets.items()]
+            log_dict.update({
+                f'Clients/client_{i}/{k}': v for k, v in tr_mets.items()
+            })
+
+            # adjust learning rate based on algorithm
+            if not cfg.model.lr_step_per_iter:
+                lr_dict, log_dict_ = log_and_step_lr_per_client(
+                    i, alg, cfg.algorithm.name
+                )
+                log_dict.update(log_dict_)
+            else:
+                lr_dict = {}
+            pbar.set_postfix(**tr_mets, **lr_dict)
+
+    return log_dict, train_metrics
+
+# ------------------------------------------------------------------------------
 def run_fl_algorithm(
     cfg: DictConfig,
     server: Server,
@@ -318,6 +423,13 @@ def run_fl_algorithm(
         if cfg.comm_threshold_mb is None:
             cfg.comm_threshold_mb = np.inf
 
+        if ('lr_step_per_iter' not in cfg.model) or \
+            (cfg.model.lr_step_per_iter is None):
+            #print("lr_step_per_iter is not set")
+            cfg.model.lr_step_per_iter = False
+        #else:
+            #print("lr_step_per_iter is set")
+
     comm_load = []
     metric_lists = {k: [] for k in cfg.dataset.problem.metric_names}
     metric_fns = {
@@ -329,68 +441,39 @@ def run_fl_algorithm(
 
     train_metrics = [{} for _ in range(cfg.num_clients)]
     
+    # eval using pretrained model
+    alg.eval_mode()
+    metrics = evaluate(
+        alg.full_model, test_loader, metric_fns=metric_fns,
+        problem_type=cfg.dataset.problem.name, 
+        use_64bit=cfg.use_64bit, device=torch_device
+    )
+    log_dict = dict()
+    log_dict.update(
+        {f'Test/{k}': v for k, v in metrics.items()}
+    )
+
+    print_str = f' > Pre-eval Round, Test '
+    for i, (k, v) in enumerate(metrics.items()):
+        if i == len(metrics.keys()) - 1:
+            print_str += f'{k}: {v:.2g}'
+        else:
+            print_str += f'{k}: {v:.2g}, '
+    logging.info(print_str)
+    logger_fn(log_dict, step=0)
+
     # main loop
     with logging_redirect_tqdm():
         for t in tqdm(
             range(cfg.rounds), unit="rd", desc="Round", leave=False,
             colour='green'
         ):
-            log_dict = {}
 
             # set all models to train mode and train
             alg.train_mode(t)
-            with tqdm(
-                range(cfg.num_clients), unit="cl", desc="Client", leave=False,
-                colour='blue'
-            ) as pbar:
-                for i in pbar:
-                    tr_mets = {}
-                    for j in tqdm(
-                        range(clients[i].epochs), unit="ep", desc="Local epoch",
-                        leave=False
-                    ):
-                        with tqdm(
-                            clients[i].train_loader, unit="batch",
-                            desc="Local batch", leave=False
-                        ) as pbar_local:
-                            for k, data in enumerate(pbar_local):
-                                x, y, args = prepare_batch(
-                                    data, torch_device, cfg.use_64bit
-                                )
-
-                                # take client step
-                                tr_metrics = alg.client_step(
-                                    (t, i, j, k), x, y, *args
-                                )
-
-                                pbar_local.set_postfix(**tr_metrics)
-                                if j == 0 and k == 0:
-                                    tr_mets = {
-                                        k: [v] for k, v in tr_metrics.items()
-                                    }
-                                else:
-                                    [tr_mets[k].append(v) for k, v in
-                                    tr_metrics.items()]
-
-                    # compute mean of metrics
-                    tr_mets = {k: np.mean(v) for k, v in tr_mets.items()}
-                    if t == 0:
-                        train_metrics[i] = {
-                            k: [v] for k, v in tr_mets.items()
-                        }
-                    else:
-                        [train_metrics[i][k].append(v) for k, v in
-                        tr_mets.items()]
-                    log_dict.update({
-                        f'Clients/client_{i}/{k}': v for k, v in tr_mets.items()
-                    })
-
-                    # adjust learning rate based on algorithm
-                    lr_dict, log_dict_ = log_and_step_lr_per_client(
-                        i, alg, cfg.algorithm.name
-                    )
-                    log_dict.update(log_dict_)
-                    pbar.set_postfix(**tr_mets, **lr_dict)
+            log_dict, train_metrics = train_clients(
+                t, cfg, alg, clients, train_metrics, torch_device
+            )
 
             # set models to eval mode and evaluate
             alg.aggregate()
@@ -410,28 +493,30 @@ def run_fl_algorithm(
                 metric_lists[k].append(metrics[k])
 
             log_dict.update(
-                {f'Test/{k}': v for k, v in metric_lists.items()}
+                {f'Test/{k}': v for k, v in metrics.items()}
             )
 
             # adjust learning rates for server models in single server runs
             # i.e., sl_single_server, cse_fsl and fsl_sage
-            _, log_dict_ = log_and_step_lr_per_round(
-                alg, cfg.algorithm.name
-            )
-            log_dict.update(log_dict_)
+            if not cfg.model.lr_step_per_iter:
+                _, log_dict_ = log_and_step_lr_per_round(
+                    alg, cfg.algorithm.name
+                )
+                log_dict.update(log_dict_)
 
             # log to wandb, console and log file
             print_str = f' > Round {t}, Test '
             for i, (k, v) in enumerate(metrics.items()):
-                if i == len(metrics.keys()) - 1:
-                    print_str += f'{k}: {v:.2g}'
-                else:
-                    print_str += f'{k}: {v:.2g}, '
+                print_str += f'{k}: {v:.2g}, '
+            print_str += f'comm load: {(alg.comm_load / (1024**3)):.2g} GiB'
             logging.info(print_str)
-            logger_fn(log_dict, step=t)
+            logger_fn(log_dict, step=t+1)
 
             # save checkpoints
-            if cfg.save and t % cfg.checkpoint_interval == 0:
+            if False and cfg.save and t % cfg.checkpoint_interval == 0:
+                # TODO: checkpointer needs to save different configs for
+                # different algorithms. Each alg needs to implement its own
+                # checkpoint saving and loading functions.
                 checkpointer.save(
                     t, alg.server, alg.clients,
                     {'accuracy': metrics['accuracy']}
@@ -445,7 +530,8 @@ def run_fl_algorithm(
                 break
 
     return FLResults(
-        alg.server, alg.clients, train_metrics, comm_load, metric_lists
+        alg.server_model(), alg.client_model(), train_metrics, comm_load,
+        metric_lists
     )
 
 # ------------------------------------------------------------------------------

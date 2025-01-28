@@ -309,18 +309,19 @@ def main(cfg: DictConfig):
         model_save_path = os.path.join(cfg.save_path, 'models')
         os.makedirs(model_save_path, exist_ok=True)
         utils.save_model(
-            results.client_list[0].model,
-            os.path.join(model_save_path, 'agg_client.pt')
+            results.client_model,
+            os.path.join(model_save_path, 'client_model.pt')
         )
-        utils.save_model(
-            results.server.model,
-            os.path.join(model_save_path, 'server.pt')
-        )
-        for i, c in enumerate(results.client_list):
+        if results.server_model is not None:
             utils.save_model(
-                c.auxiliary_model,
-                os.path.join(model_save_path, f'auxiliary_model_{i}.pt')
+                results.server_model,
+                os.path.join(model_save_path, 'server_model.pt')
             )
+        #for i, c in enumerate(results.client_list):
+        #    utils.save_model(
+        #        c.auxiliary_model,
+        #        os.path.join(model_save_path, f'auxiliary_model_{i}.pt')
+        #    )
 
 # -----------------------------------------------------------------------------
 if __name__ == '__main__':
