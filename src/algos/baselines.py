@@ -1,5 +1,6 @@
 # ------------------------------------------------------------------------------
 import copy
+from typing import List
 import torch.nn as nn
 import torch
 from utils import model_utils
@@ -121,6 +122,7 @@ class SplitFedv2(FLAlgorithm):
 # ------------------------------------------------------------------------------
 @register_algorithm("sl_multi_server")
 class SplitFedv1(FLAlgorithm):
+    servers           : List[nn.Module]
     aggregated_server : nn.Module
 
     def __init__(self, *args, **kwargs):
@@ -141,9 +143,11 @@ class SplitFedv1(FLAlgorithm):
         return self.aggregated_server
 
     def special_models_train_mode(self, t):
+        for i in range(len(self.servers)): self.servers[i].model.train()
         if t > 0: self.aggregated_server.train()
 
     def special_models_eval_mode(self):
+        for i in range(len(self.servers)): self.servers[i].model.eval()
         self.aggregated_server.eval()
 
     def client_step(self, rd_cl_ep_it, x, y, *args):
