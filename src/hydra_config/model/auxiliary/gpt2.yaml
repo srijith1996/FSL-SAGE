@@ -3,27 +3,20 @@ defaults:
 
 name: gpt2
 options:
-  vocab_size: 50257
-  n_positions: 1024
-  n_ctx: 1024
-  n_embd: 768
-  n_client_layer: 3
-  n_server_layer: 9
-  n_auxiliary_layer: 2
-  n_head: 12
-  layer_norm_epsilon: 1e-5
-  initializer_range: 0.02
-  lora_attn_dim: 0
-  lora_attn_alpha: 128
-  lora_dropout: 0.0
-  lora_r_dropout: 0.0
-  fix_dropout: 0.0
+  align_epochs     : 40
+  align_batch_size : 8
+  max_dataset_size : 64
 
-optimizer: 
-  name: adamw
-  no_decay_bias  : false
+optimizer:
+  name         : adamw
+  no_decay_bias: false
   options:
+    lr         : 0.0002
     weight_decay : 0.01
     correct_bias : true
     eps          : 1e-6
-    betas        : [0.9, 0.98]
+    betas        : [0.9, 0.999]
+lr_scheduler:
+  name         : lambda_lr
+  warmup_steps : 500
+  options:

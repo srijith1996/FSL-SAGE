@@ -3,45 +3,60 @@ defaults:
 
 name: gpt2
 
-pretrained_weights_file: ../pretrained_models/openai_gpt2.bin
+pretrained_weights_file: ../pretrained_models/openai_gpt2m.bin
 
 options:
   vocab_size: 50257
   n_positions: 1024
   n_ctx: 1024
-  n_embd: 768
-  n_client_layer: 3
-  n_server_layer: 9
-  n_auxiliary_layer: 2
-  n_head: 12
+  #n_embd: 768
+  n_embd: 1024
+  #n_client_layer: 3
+  #n_server_layer: 9
+  #n_auxiliary_layer: 1
+  n_client_layer: 1
+  n_server_layer: 23
+  n_auxiliary_layer: 3
+  n_head: 16
   layer_norm_epsilon: 1e-5
   initializer_range: 0.02
-  lora_attn_dim: 1
-  lora_attn_alpha: 128
-  lora_dropout: 0.0
+  lora_attn_dim: 4
+  lora_attn_alpha: 32
+  lora_dropout: 0.1
   lora_r_dropout: 0.0
   fix_dropout: 0.0
 
+lr_step_per_iter: true
+
 client:
   epoch      : 1
-  batch_size : 96
-  lr         : 0.00001
-  optimizer: 
+  batch_size : 8
+  optimizer:
     name         : adamw
     no_decay_bias: false
     options:
+      lr           : 0.0002
       weight_decay : 0.01
       correct_bias : true
       eps          : 1e-6
-      betas        : [0.9, 0.98]
+      betas        : [0.9, 0.999]
+  lr_scheduler:
+    name         : lambda_lr
+    warmup_steps : 500
+    options:
 
 server:
-  lr : 0.00001
-  optimizer: 
+  label_smooth : 0.1
+  optimizer:
     name         : adamw
     no_decay_bias: false
     options:
+      lr           : 0.0002
       weight_decay : 0.01
       correct_bias : true
       eps          : 1e-6
-      betas        : [0.9, 0.98]
+      betas        : [0.9, 0.999]
+  lr_scheduler:
+    name         : lambda_lr
+    warmup_steps : 500
+    options:
