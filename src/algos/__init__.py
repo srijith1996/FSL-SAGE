@@ -220,7 +220,7 @@ def evaluate(
             out = model(x)
             out = out[0] if isinstance(out, tuple) else out
             for v in metric_fns.values():
-                v.update(out, y)
+                v.update(out, y) if len(args) == 0 else v.update(out, y, *args)
 
         for k, v in metric_fns.items(): metrics[k] = v.average()
     return metrics
