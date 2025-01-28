@@ -120,7 +120,7 @@ def model_constructors(cfg) -> Callable:
         model_pack.server, **soptions, **common_options
     ) if model_pack.server is not None else (lambda: None)
     auxiliary_constructor = partial(
-        model_pack.auxiliary, **aoptions
+        model_pack.auxiliary, **aoptions, **common_options
     ) if model_pack.auxiliary is not None else (lambda: None)
 
     return client_constructor, server_constructor, auxiliary_constructor, \
@@ -157,13 +157,14 @@ def setup_server_and_clients(
 
     # initialize auxiliary models
     for c in client_list:
-        c.init_auxiliary(
-            auxiliary_constructor(
-                server=server, device=global_torch_device,
-                **client_server_params
-            ),
-            cfg.model.auxiliary
-        )
+        if auxiliary_constructor:
+            c.init_auxiliary(
+                auxiliary_constructor(
+                    server=server, device=global_torch_device,
+                    **client_server_params
+                ),
+                cfg.model.auxiliary
+            )
 
     # load pretrained_weights
     def __safe_load_weights(model, *args, **kwargs):
