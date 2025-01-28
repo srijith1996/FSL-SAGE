@@ -1,4 +1,5 @@
 # ------------------------------------------------------------------------------
+import copy
 import torch
 from utils.utils import calculate_load
 from algos import (
@@ -18,10 +19,13 @@ class CSEFSL(FLAlgorithm):
         self.server_update_interval = self.cfg.server_update_interval
         self.iters_per_epoch = [len(c.train_loader) for c in self.clients]
 
-    def full_model(self, x):
-        cl_out = self.aggregated_client(x)
-        return self.server.model(*cl_out) if isinstance(cl_out, tuple) \
-            else self.server.model(cl_out)
+        self.aggregated_auxiliary = copy.deepcopy(self.clients[0].auxiliary_model)
+
+    def client_model(self):
+        return self.aggregated_client
+
+    def server_model(self):
+        return self.server.model
 
     def special_models_train_mode(self, t):
         if t > 0: self.aggregated_auxiliary.train()
@@ -74,7 +78,8 @@ class CSEFSL(FLAlgorithm):
         # server model update
         local_iter = j * self.iters_per_epoch[i] + k
         if local_iter % self.server_update_interval == 0:
-            self.comm_load += smashed_data.numel() * smashed_data.element_size()
+            self.comm_load += smashed_data.numel() * \
+                smashed_data.element_size()
             if aux_ins_cond:
                 self.comm_load += get_auxlist_memory_consumption(
                     splitting_outputs[1:]
@@ -94,6 +99,10 @@ class CSEFSL(FLAlgorithm):
 
             s_loss.backward()
             self.server.optimizer.step()
+
+            self.server_updated = True      # for lr scheduler step
+        else:
+            self.server_updated = False     # for lr scheduler step
 
         return ret_dict
 

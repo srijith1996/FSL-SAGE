@@ -31,8 +31,13 @@ class FedAvg(FLAlgorithm):
                 c.optimizer, c.lr_scheduler_options
             )
 
-    def full_model(self, x, *args, **kwargs):
-        return self.aggregated_client(x, *args, **kwargs)
+        self.aggregated_client = copy.deepcopy(self.clients[0].model)
+
+    def client_model(self):
+        return self.aggregated_client
+
+    def server_model(self):
+        return None
 
     def client_step(self, rd_cl_ep_it, x, y, *args):
         t, i, j, k = rd_cl_ep_it
@@ -57,10 +62,11 @@ class FedAvg(FLAlgorithm):
 @register_algorithm("sl_single_server")
 class SplitFedv2(FLAlgorithm):
 
-    def full_model(self, x):
-        cl_out = self.aggregated_client(x)
-        return self.server.model(*cl_out) if isinstance(cl_out, tuple) \
-            else self.server.model(cl_out)
+    def client_model(self):
+        return self.aggregated_client
+
+    def server_model(self):
+        return self.server.model
 
     def client_step(self, rd_cl_ep_it, x, y, *args):
         t, i, j, k = rd_cl_ep_it
@@ -125,10 +131,14 @@ class SplitFedv1(FLAlgorithm):
         for c in self.clients:
             self.servers.append(copy.deepcopy(self.server))
 
-    def full_model(self, x):
-        cl_out = self.aggregated_client(x)
-        return self.server.model(*cl_out) if isinstance(cl_out, tuple) \
-            else self.server.model(cl_out)
+        # init aggregated server model
+        self.aggregated_server = copy.deepcopy(self.servers[0].model)
+
+    def client_model(self):
+        return self.aggregated_client
+
+    def server_model(self):
+        return self.aggregated_server
 
     def special_models_train_mode(self, t):
         if t > 0: self.aggregated_server.train()

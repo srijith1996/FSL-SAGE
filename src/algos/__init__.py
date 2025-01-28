@@ -75,13 +75,28 @@ class FLAlgorithm(ABC):
         self.clients = clients
         self.test_loader = test_loader
         self.criterion = server.criterion
+        self.server_updated = True          # default for FL and basic SL algs
 
         self.agg_factor = agg_factor
         self.device = device
         self.use_64bit = use_64bit
 
+        # init aggregated client
+        self.aggregated_client = copy.deepcopy(clients[0].model)
+
+    def full_model(self, x):
+        cl_out = self.client_model()(x)
+        if self.server_model() is None:
+            return cl_out
+        return self.server_model()(*cl_out) if isinstance(cl_out, tuple) \
+            else self.server_model()(cl_out)
+
     @abstractmethod
-    def full_model(self):
+    def client_model(self):
+        pass
+
+    @abstractmethod
+    def server_model(self):
         pass
     
     @abstractmethod

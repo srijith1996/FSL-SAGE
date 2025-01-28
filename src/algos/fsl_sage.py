@@ -16,10 +16,11 @@ class FSLSAGE(FLAlgorithm):
         self.align_interval = self.cfg.align_interval
         self.iters_per_epoch = [len(c.train_loader) for c in self.clients]
 
-    def full_model(self, x):
-        cl_out = self.aggregated_client(x)
-        return self.server.model(*cl_out) if isinstance(cl_out, tuple) \
-            else self.server.model(cl_out)
+    def client_model(self):
+        return self.aggregated_client
+
+    def server_model(self):
+        return self.server.model
 
     def special_models_train_mode(self, t):
         for c in self.clients: c.auxiliary_model.train()
