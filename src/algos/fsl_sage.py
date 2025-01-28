@@ -41,18 +41,30 @@ class FSLSAGE(FLAlgorithm):
 
         local_smashed_data = splitting_output.clone(
             ).detach().requires_grad_(True)
+        smashed_data = splitting_output.clone().detach().requires_grad_(False)
 
         aux_ins_cond = (
             isinstance(splitting_outputs, tuple) and len(splitting_outputs) > 1
         )
         aux_ins = splitting_outputs[1:] if aux_ins_cond else []
 
+        # client backpropagation and update client-side model weights
+        out = self.clients[i].auxiliary_model.forward_inner(
+            local_smashed_data, *aux_ins
+        )
+        out = out[0] if isinstance(out, tuple) else out
+        loss = self.criterion(out, y, *args)
+        ret_dict = dict()
+        with torch.no_grad():
+            ret_dict['l_loss'] = loss.item()
+
+        loss.backward()
+        splitting_output.backward(local_smashed_data.grad)
+        self.clients[i].optimizer.step()
+
         # server model update
         local_iter = j * self.iters_per_epoch[i] + k
-        ret_dict = dict()
         if local_iter % self.server_update_interval == 0:
-            smashed_data = splitting_output.clone(
-                ).detach().requires_grad_(True)
             self.comm_load += smashed_data.numel() \
                 * smashed_data.element_size()
             if aux_ins_cond:
@@ -77,8 +89,11 @@ class FSLSAGE(FLAlgorithm):
 
             # save smashed data to memory
             self.clients[i].auxiliary_model.add_datapoint(
-                splitting_output.clone().detach(), y, *aux_ins
+                smashed_data.clone().detach(), y, *aux_ins
             )
+            self.server_updated = True      # for lr scheduler step
+        else:
+            self.server_updated = False     # for lr scheduler step
 
         # perform alignment for current client
         if t % self.align_interval == 0 and local_iter == 0:
@@ -89,17 +104,6 @@ class FSLSAGE(FLAlgorithm):
             self.comm_load += calculate_load(
                 self.clients[i].auxiliary_model
             )
-
-        # client backpropagation and update client-side model weights
-        out = self.clients[i].auxiliary_model.forward_inner(
-            local_smashed_data, *aux_ins
-        )
-        out = out[0] if isinstance(out, tuple) else out
-        loss = self.criterion(out, y, *args)
-
-        loss.backward()
-        splitting_output.backward(local_smashed_data.grad)
-        self.clients[i].optimizer.step()
 
         return ret_dict
 
