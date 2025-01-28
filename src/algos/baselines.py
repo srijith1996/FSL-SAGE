@@ -15,21 +15,21 @@ from models import config_optimizer, config_lr_scheduler
 @register_algorithm("fed_avg")
 class FedAvg(FLAlgorithm):
 
-    def __init__(self,
-        *args, optimizer_options=None, **kwargs 
-    ):
-    # TODO: how to neatly incorporate the optimizer_options in here?
-        super(FedAvg, self).__init__(*args, **kwargs)
+    def __init__(self, *args, **kwargs):
 
+        super(FedAvg, self).__init__(*args, **kwargs)
         # merge client and server models into one
         for c in self.clients:
-            c.model = model_utils.ClientServerSequential(c.model, self.server.model)
+            c.model = model_utils.ClientServerSequential(
+                c.model, self.server.model
+            )
             c.optimizer = config_optimizer(
                 c.model, c.optimizer_options,
                 no_decay_bias=c.optimizer_no_decay_bias
             )
             c.lr_scheduler = config_lr_scheduler(
-                c.optimizer, c.lr_scheduler_options
+                c.optimizer, c.lr_scheduler_options,
+                max_steps=c.max_steps
             )
 
         self.aggregated_client = copy.deepcopy(self.clients[0].model)
