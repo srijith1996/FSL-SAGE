@@ -1,6 +1,6 @@
 # ------------------------------------------------------------------------------
 from abc import ABC, abstractmethod
-from tqdm import trange
+from tqdm import trange, tqdm
 import logging
 from typing import Dict, Type
 
@@ -41,7 +41,7 @@ class AuxiliaryModel(ABC, nn.Module):
 
         self.max_data_size = max_dataset_size
         self.refresh_dataset = None
-        self.align_dataloader = None
+        self.align_dataset = None
         self.align_batch_size = align_batch_size
         self.server = server
         self.aux_batch_handler_class = aux_batch_handler_class
@@ -68,15 +68,17 @@ class AuxiliaryModel(ABC, nn.Module):
         
         '''
         logging.debug(
-            f"Size of alignment dataset: {len(self.refresh_dataset)}"
+            f"Size of refresh dataset: {len(self.refresh_dataset)}"
         )
 
         data_y = None
-        
-        for i, data in enumerate(DataLoader(
+        refresh_dl = DataLoader(
             self.refresh_dataset, batch_size=self.align_batch_size,
             pin_memory=False, shuffle=False,
             collate_fn=self.refresh_dataset.collate_fn
+        )
+        for i, data in enumerate(tqdm(
+            refresh_dl, desc="Refresh Align Dataset", leave=False
         )):
             x, label = data[0], data[1]
             aux_ins = data[2:] if len(data) > 2 else []
@@ -90,11 +92,9 @@ class AuxiliaryModel(ABC, nn.Module):
             data_y = y_ if i == 0 else torch.cat((data_y, y_), axis=0)
             self.server.optimizer.zero_grad()
 
-        align_dataset = AlignDataset(self.refresh_dataset, data_y)
-        self.align_dataloader = DataLoader(
-            align_dataset, batch_size=self.align_batch_size,
-            shuffle=True, pin_memory=False, collate_fn=align_dataset.collate_fn
-        )
+        self.align_dataset = AlignDataset(self.refresh_dataset, data_y) \
+            if self.align_dataset is None else \
+                self.align_dataset.update_outs(data_y)
 
     #def get_align_dataset(self):
     #    '''Get X data concatenated with the labels'''
@@ -180,9 +180,14 @@ class GradScalarAuxiliaryModel(AuxiliaryModel):
 
     def align(self):
         bar = trange(self.align_epochs, desc="Alignment", leave=False)
-        logging.debug(f"# batches for alignment: {len(self.align_dataloader)}")
+        logging.debug(f"# samples for alignment: {len(self.align_dataset)}")
+        align_dataloader = DataLoader(
+            self.align_dataset, batch_size=self.align_batch_size,
+            shuffle=True, pin_memory=False,
+            collate_fn=self.align_dataset.collate_fn
+        )
         for i in bar:
-            for data in self.align_dataloader:
+            for data in align_dataloader:
                 x, y, labels = data[0], data[1], data[2]
                 other_ins = data[3:] if len(data) > 3 else []
                 assert x.shape == y.shape, \
@@ -196,7 +201,7 @@ class GradScalarAuxiliaryModel(AuxiliaryModel):
                     f" --- Epoch {i:4d}/{self.align_epochs}, Loss {loss:.4e}"
                 )
             bar.set_postfix(loss=loss.item())
-            if self.lr_scheduler is not None: self.lr_scheduler.step()
+            #if self.lr_scheduler is not None: self.lr_scheduler.step()
 
     def forward(self, x, label, *other_ins):
         x.requires_grad_(True)

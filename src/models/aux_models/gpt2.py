@@ -1,4 +1,5 @@
 # ------------------------------------------------------------------------------
+from typing import Union, List
 import sys, logging
 import torch
 import torch.nn as nn
@@ -78,44 +79,123 @@ class GPT2LMAuxiliaryModel(aux_models.GradScalarAuxiliaryModel):
 
 # ------------------------------------------------------------------------------
 class GPT2AuxBatchHandler(AuxBatchHandler):
+    presents    : List[torch.Tensor]
+    input_shape : torch.Size
+    past        : List[Union[None, torch.Tensor]]
+    len_past    : Union[None, int]
+    size        : int
+    index       : int
+    max_size    : int
+
     def __init__(self, aux_inputs_list, max_size):
         super(GPT2AuxBatchHandler, self).__init__(aux_inputs_list, max_size)
 
         assert len(aux_inputs_list) == 4, \
             f"Expected 4 aux inputs for GPT2 model, got {len(aux_inputs_list)}"
-        self.presents, self.input_shape, self.past, self.len_past = \
-            tuple(aux_inputs_list)
 
-    def __update_kv_list(self, orig_list, list):
-        return [torch.cat((p, in_p), dim=1) for p, in_p in zip(orig_list, list)]
+        presents, _, past, _ = tuple(aux_inputs_list)
+        self.presents = [
+            torch.empty((p.shape[0], max_size, *p.shape[2:])
+                        ).to(presents[0].device)
+            for p in presents
+        ]
+        self.past = past if past[0] is None else [
+            torch.empty((p.shape[0], max_size, *p.shape[2:])
+                        ).to(past[0].device) for p in past
+        ]
 
-    def __update_presents(self, presents_batch):
-        '''Presents consists of a list of (key, value) tensors stacked along the
-        0th axis for each attention block.'''
-        self.presents = self.__update_kv_list(self.presents, presents_batch)
+        self.max_size = max_size
+        self.full = False
+        self.index = 0
+        self.len_past = aux_inputs_list[3]
+        self.update(aux_inputs_list)
 
-    def __update_input_shape(self, input_shape):
-        '''Input shape records the shape of the inputs that generated the
-        current set of outputs.  We need to simply increment the batch
-        dimension, dim=0, of our recorded input_shape with the size of the
-        incoming batch. '''
-        assert self.input_shape[1:] == input_shape[1:], \
-            f"Dimensions of input shape other than the batch dimension, " +\
-                f"dim=0, should match"
-        new_batch_size = self.input_shape[0] + input_shape[0]
-        self.input_shape = torch.Size([new_batch_size, *self.input_shape[1:]])
+    def __update_non_exhaustive(self,
+        batch_size, presents, input_shape, past, len_past
+    ):
+        for i, p in enumerate(presents):
+            self.presents[i][:, self.index:(self.index + batch_size), ...].copy_(p)
 
-    def __update_past(self, past):
-        assert isinstance(past, list)
-        if past[0] is not None and self.past[0] is not None:
-            self.past = self.__update_kv_list(self.past, past)
+        if self.past[0] is not None:
+            for i, p in enumerate(past):
+                self.past[i][:, self.index:(self.index + batch_size), ...].copy_(p)
+ 
+        self.input_shape = torch.Size(
+            [self.index + batch_size, *input_shape[1:]]
+        )
+        self.index = (self.index + batch_size) % self.max_size
+        if self.index == 0: self.full = True
 
-    def __update_len_past(self, len_past):
-        assert len_past == self.len_past, \
-            f"I don't know how to update a different value, {len_past}," + \
-                f"for len_past which is currently {self.len_past}"
+    def __update_exhaustive(self,
+        batch_size, presents, input_shape, past, len_past
+    ):
+        remaining_space = self.max_size - self.index
+
+        for i, p in enumerate(presents):
+            self.presents[i][:, self.index:, ...].copy_(p[:, :remaining_space, ...])
+            self.presents[i][:, :(batch_size-remaining_space), ...].copy_(
+                p[:, remaining_space:, ...]
+            )
+
+        if self.past[0] is not None:
+            for i, p in enumerate(past):
+                self.past[i][:, self.index:, ...].copy_(p[:, :remaining_space, ...])
+                self.past[i][:, :(batch_size-remaining_space), ...].copy_(
+                    p[:, remaining_space:, ...]
+                )
+
+        self.input_shape = torch.Size(
+            [self.max_size, *self.input_shape[1:]]
+        )
+        self.index = (self.index + batch_size) % self.max_size
+        self.full = True
+
+    def __update_bigger_batch(self,
+        presents, input_shape, past, len_past
+    ):
+        for i, p in enumerate(presents):
+            self.presents[i].copy_(p[:, :self.max_size, ...])
+
+        if self.past[0] is not None:
+            for i, p in enumerate(past):
+                self.past[i].copy_(p[:, :self.max_size, ...])
+
+        self.input_shape = torch.Size([
+            self.max_size, *list(input_shape[1:])
+        ])
+        self.index = 0
+        self.full = True
+
+    def update(self, aux_list):
+        presents, input_shape, past, len_past = tuple(aux_list)
+        batch_size = presents[0].shape[1]
+
+        if self.index + batch_size <= self.max_size:
+            self.__update_non_exhaustive(
+                batch_size, presents, input_shape, past, len_past
+            )
+
+        # if the current batch is smaller than the max size
+        elif batch_size <= self.max_size:
+            self.__update_exhaustive(
+                batch_size, presents, input_shape, past, len_past
+            )
+
+        # if the current batch is larger than the dataset size
+        else:
+            self.__update_bigger_batch(
+                presents, input_shape, past, len_past
+            )
+
+    def __len__(self):
+        return self.max_size if self.full else self.index
 
     def __getitem__(self, idx):
+        if idx > self.__len__():
+            raise IndexError(
+                f"Illegal index {idx} for dataset of size {self.__len__()}"
+            )
+
         pres = [p[:, idx, ...] for p in self.presents]
         in_shp = torch.Size([1, *self.input_shape[1:]])
         past = self.past if self.past[0] is None else \
@@ -123,35 +203,8 @@ class GPT2AuxBatchHandler(AuxBatchHandler):
         len_past = self.len_past
         return pres, in_shp, past, len_past
 
-    def update(self, aux_list):
-        present, input_shape, past, len_past = tuple(aux_list)
-        self.__update_presents(present)
-        self.__update_input_shape(input_shape)
-        self.__update_past(past)
-        self.__update_len_past(len_past)
-
-    def maintain_size(self):
-        if self.presents[0].shape[1] <= self.max_size:
-            #logging.info(f"Skipping, current presents len {self.presents[0].shape[1]}")
-            return # no need to truncate
-
-        #logging.info("About to truncate dataset.  Init sizes----------")
-        #logging.info(f"Presents: {self.presents[0].shape[1]}")
-        #logging.info(f"Input shape: {self.input_shape}")
-        #logging.info(f"Past: {self.past}")
-        #logging.info(f"Past len: {self.len_past}")
-
-        self.presents = [p[:, -self.max_size:, ...] for p in self.presents]
-        new_batch_size = min(self.max_size, self.input_shape[0])
-        self.input_shape = torch.Size([new_batch_size, *self.input_shape[1:]])
-        if self.past[0] is not None:
-            self.past = [p[:, -self.max_size:, ...] for p in self.past]
-
-        #logging.info("Maintained sizes at ----------")
-        #logging.info(f"Presents: {self.presents[0].shape[1]}")
-        #logging.info(f"Input shape: {self.input_shape}")
-
-    def collate(self, aux_inputs_list):
+    @staticmethod
+    def collate(aux_inputs_list):
         presents_list, input_shape_list, past_list, len_past_list = \
             tuple(aux_inputs_list)
 

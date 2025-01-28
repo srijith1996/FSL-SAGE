@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from typing import Type, Union
 import numpy as np
 import torch
+import logging
 from torch.utils.data import Dataset
 
 # ------------------------------------------------------------------------------
@@ -38,6 +39,10 @@ class AuxBatchHandler(ABC):
                 f"doesn't match the initialized type {self.aux_input_types[i]}"
 
     @abstractmethod
+    def __len__(self):
+        pass
+
+    @abstractmethod
     def __getitem__(self, idx):
         pass
 
@@ -46,62 +51,91 @@ class AuxBatchHandler(ABC):
         pass
 
     @abstractmethod
-    def maintain_size(self):
-        pass
-
-    @abstractmethod
     def collate(self, aux_inputs_list):
         pass
 
 # ------------------------------------------------------------------------------
 class RefreshDataset(Dataset):
+    inputs                  : torch.Tensor
+    labels                  : torch.Tensor
+    index                   : int
+    full                    : bool
+    max_data_size           : int
+    aux_batch_handler_class : Type[AuxBatchHandler]
+    aux_batch_handler       : AuxBatchHandler
+
     def __init__(self,
         inputs, labels, max_dataset_size, aux_inputs_list=[],
         aux_batch_handler_class: Type[AuxBatchHandler]=None
     ):
 
-        self.inputs = inputs
-        self.labels = labels
+        self.inputs = torch.empty((max_dataset_size, *inputs.shape[1:])
+                                  ).to(inputs.device)
+        self.labels = torch.empty((max_dataset_size, *labels.shape[1:])
+                                  , dtype=int).to(labels.device)
+        self.index = 0
+        self.full = False
+
         if len(aux_inputs_list) > 0:
             assert aux_batch_handler_class is not None, \
                 f"A RefreshDataset object requires an auxiliary batch handler" \
-                    + f"class if the aux_inputs_list is not empty"
+                    + f" class if the aux_inputs_list is not empty"
+            self.aux_batch_handler_class = aux_batch_handler_class
             self.aux_batch_handler = aux_batch_handler_class(
                 aux_inputs_list, max_dataset_size
             )
         else:
+            self.aux_batch_handler_class = None
             self.aux_batch_handler = None
-        self.max_data_size = max_dataset_size
-        self.__maintain_size()
 
-    def __maintain_size(self):
-        self.inputs = self.inputs[-self.max_data_size:]
-        self.labels = self.labels[-self.max_data_size:]
-        if self.aux_batch_handler is not None:
-            self.aux_batch_handler.maintain_size()
+        self.max_data_size = max_dataset_size
+
+        self.update(inputs, labels, aux_inputs_list)
 
     def __len__(self):
-        return len(self.inputs)
+        return self.max_data_size if self.full else self.index
 
     def __getitem__(self, idx):
+        if idx >= self.max_data_size:
+            raise IndexError(
+                f"Illegal index {idx} for dataset of size {self.max_data_size}"
+            )
+
         aux_inputs = self.aux_batch_handler[idx] \
             if self.aux_batch_handler is not None else []
         return self.inputs[idx], self.labels[idx], *aux_inputs
 
-    def update(self, inputs, labels, aux_inputs_list):
-        '''Append an existing batch of data (inputs, labels, auxiliary_inputs)
+    def update(self, inputs, labels, aux_inputs_list=[]):
+        with torch.no_grad():
+            batch_size = inputs.shape[0]
         
-        Note: To simplify things, we will next assume that if aux_inputs_list is
-        not empty it contains the auxiliary inputs of the gpt2 server modeis not
-        empty it contains the auxiliary inputs expected by the gpt2 server
-        model.'''
+            # Check if the new batch fits without exceeding the buffer
+            if self.index + batch_size <= self.max_data_size:
+                self.inputs[self.index:(self.index + batch_size)].copy_(inputs)
+                self.labels[self.index:(self.index + batch_size)].copy_(labels)
+                self.index = (self.index + batch_size) % self.max_data_size
+                # the modulo prevents the case where index = max_dataset_size
+                if self.index == 0: self.full = True
 
-        self.inputs = torch.cat((self.inputs, inputs), axis=0)
-        self.labels = torch.cat((self.labels, labels), axis=0)
-        if len(aux_inputs_list) > 0:
-            self.aux_batch_handler.verify_aux_inputs(aux_inputs_list)
-            self.aux_batch_handler.update(aux_inputs_list)
-        self.__maintain_size()
+            # if the current batch is smaller than the max size
+            elif batch_size <= self.max_data_size:
+                remaining_space = self.max_data_size - self.index
+                self.inputs[self.index:].copy_(inputs[:remaining_space])
+                self.inputs[:(batch_size - remaining_space)].copy_(inputs[remaining_space:])
+                self.labels[self.index:].copy_(labels[:remaining_space])
+                self.labels[:(batch_size - remaining_space)].copy_(labels[remaining_space:])
+                self.index = (self.index + batch_size) % self.max_data_size
+                self.full = True
+
+            # if the current batch is larger than the dataset size
+            else:
+                self.inputs.copy_(inputs[:self.max_data_size])
+                self.labels.copy_(inputs[:self.max_data_size])
+                self.index = 0
+                self.full = True
+
+            if len(aux_inputs_list) > 0:
+                self.aux_batch_handler.update(aux_inputs_list)
 
     def collate_fn(self, batch):
         inputs, labels, *aux_inputs_list = zip(*batch)
@@ -110,7 +144,7 @@ class RefreshDataset(Dataset):
         inputs = torch.stack(inputs)
         labels = torch.stack(labels)
 
-        proc_aux_ins = self.aux_batch_handler.collate(aux_inputs_list) \
+        proc_aux_ins = self.aux_batch_handler_class.collate(aux_inputs_list) \
             if len(aux_inputs_list) > 0 else []
 
         return (inputs, labels, *proc_aux_ins)
@@ -119,7 +153,8 @@ class RefreshDataset(Dataset):
 class AlignDataset(Dataset):
     def __init__(self, refresh_dataset: RefreshDataset, outputs: torch.Tensor):
         self.refresh_dataset = refresh_dataset
-        self.outputs = outputs
+        self.outputs = torch.empty_like(refresh_dataset.inputs)
+        self.outputs[:outputs.shape[0]].copy_(outputs)
 
     def __len__(self):
         return len(self.refresh_dataset)
@@ -128,6 +163,10 @@ class AlignDataset(Dataset):
         ref_dat = self.refresh_dataset[idx]
         aux_ins = ref_dat[2:] if len(ref_dat) > 2 else []
         return ref_dat[0], self.outputs[idx], ref_dat[1], *aux_ins
+
+    def update_outs(self, outs):
+        self.outputs[:outs.shape[0]].copy_(outs)
+        return self
 
     def collate_fn(self, batch):
         inputs, outputs, labels, *aux_inputs_list = zip(*batch)
