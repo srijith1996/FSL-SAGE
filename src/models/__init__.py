@@ -97,18 +97,30 @@ def config_optimizer(model, cfg, no_decay_bias=False):
     return optim(params, **cfg.options)
 
 # ------------------------------------------------------------------------------
-def config_lr_scheduler(optimizer, cfg):
+def config_lr_scheduler(optimizer, cfg, **kwargs):
     if cfg is None: return None
     if cfg.name == 'multistep_lr':
         sched = torch.optim.lr_scheduler.MultiStepLR
     elif cfg.name == 'step_lr':
         sched = torch.optim.lr_scheduler.StepLR
+
+    elif cfg.name == 'lambda_lr':
+        assert 'max_steps' in kwargs.keys()
+        sched = torch.optim.lr_scheduler.LambdaLR
+        def lr_lambda(current_step):
+            if current_step < cfg.warmup_steps:
+                return float(current_step) / float(max(1, cfg.warmup_steps))
+            return max(0.0, float(kwargs['max_steps'] - current_step) /
+                       float(max(1, kwargs['max_steps'] - cfg.warmup_steps)))
+
+        return sched(optimizer, lr_lambda, last_epoch=-1)
     else:
         raise Exception(f"LR Scheduler {cfg.name} is not configured")
 
     return sched(optimizer, **cfg.options)
 
 # ------------------------------------------------------------------------------
+max_steps = -1
 class Client():
     id      : int
     model   : Union[nn.Module, Callable]
@@ -119,7 +131,7 @@ class Client():
     auxiliary_model : aux_models.AuxiliaryModel
 
     def __init__(self,
-        id, train_loader, client, cfg_model, device='cpu'
+        id, train_loader, client, cfg_model, rounds, device='cpu'
     ):
         self.id = id
         self.model = client 
@@ -134,11 +146,15 @@ class Client():
             if 'no_decay_bias' in cfg_model.keys() else False
 
         self.lr_scheduler = config_lr_scheduler(
-            self.optimizer, cfg_model.lr_scheduler
+            self.optimizer, cfg_model.lr_scheduler,
+            max_steps=(len(train_loader) * cfg_model.epoch *  rounds)
         ) if "lr_scheduler" in cfg_model and cfg_model.lr_scheduler \
             else None
         self.lr_scheduler_options = cfg_model.lr_scheduler \
             if "lr_scheduler" in cfg_model else None
+        global max_steps
+        max_steps = (len(train_loader) * cfg_model.epoch *  rounds)
+        self.max_steps = max_steps
 
         self.train_loader = train_loader
         self.epochs = cfg_model.epoch
@@ -153,10 +169,14 @@ class Client():
             no_decay_bias=cfg_aux.no_decay_bias \
                 if 'no_decay_bias' in cfg_aux.keys() else False
         )
+        global max_steps
+        self.aux_lr_scheduler = config_lr_scheduler(
+                self.aux_optimizer, cfg_aux.lr_scheduler,
+                max_steps=max_steps
+        ) if 'lr_scheduler' in cfg_aux else None
+
         self.auxiliary_model.set_optimizer_lr_scheduler(
-            self.aux_optimizer, config_lr_scheduler(
-                self.aux_optimizer, cfg_aux.lr_scheduler
-            ) if 'lr_scheduler' in cfg_aux else None
+            self.aux_optimizer, self.aux_lr_scheduler
         )
 
 # -----------------------------------------------------------------------------
@@ -216,8 +236,10 @@ class Server():
         )
         self.optimizer_options = cfg.optimizer
 
+        global max_steps
         self.lr_scheduler = config_lr_scheduler(
-            self.optimizer, cfg.lr_scheduler
+            self.optimizer, cfg.lr_scheduler,
+            max_steps=max_steps
         ) if "lr_scheduler" in cfg and cfg.lr_scheduler else None
 
         if problem_type != 'image_classification':

@@ -140,7 +140,7 @@ def setup_server_and_clients(
     client_list = [
         Client(i, client_loaders[i],
             client_constructor(),
-            cfg.model.client, device=global_torch_device
+            cfg.model.client, cfg.rounds, device=global_torch_device
         )
         for i in range(cfg.num_clients)
     ]
