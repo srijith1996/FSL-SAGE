@@ -49,7 +49,7 @@ class CSEFSL(FLAlgorithm):
 
         local_smashed_data = splitting_output.clone(
             ).detach().requires_grad_(True)
-        smashed_data = splitting_output.clone().detach().requires_grad_(True)
+        smashed_data = splitting_output.clone().detach().requires_grad_(False)
 
         # client backpropagation and update client-side model weights
         aux_ins_cond = (
