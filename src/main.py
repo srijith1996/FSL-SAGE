@@ -102,6 +102,16 @@ def check_and_mark_lora_trainable(cfg, server, clients):
         f"Total # params: {all_p}, " +
         f"Fraction trainable: {(tr_p/all_p * 100.0):.2f}%"
     )
+
+    tr_p, all_p = utils.count_trainable_params(
+        clients[0].auxiliary_model
+    ) if clients[0].auxiliary_model else (None, None)
+    if tr_p is not None:
+        logging.info(
+            f"--> Auxiliary: # trainable params: {tr_p}, " +
+            f"Total # params: {all_p}, " +
+            f"Fraction trainable: {(tr_p/all_p * 100.0):.2f}%"
+        )
         
 # -----------------------------------------------------------------------------
 def model_constructors(cfg) -> Callable:
@@ -210,7 +220,7 @@ def setup_server_and_clients(
         f"Auxiliary = {mod_sizes[2]:.3f}MiB."
     )
     logging.info(
-        f"# parameters : Client = {param_counts[0]}, " +
+        f"# parameters and buffers : Client = {param_counts[0]}, " +
         f"Server = {param_counts[1]}, " +
         f"Auxiliary = {param_counts[2]}."
     )
@@ -220,7 +230,8 @@ def setup_server_and_clients(
     if False:
         utils.print_model(server.model)
         utils.print_model(client_list[0].model)
-        client_list[0].auxiliary_model
+        utils.print_model(client_list[0].auxiliary_model)
+        print(utils.compute_model_size(client_list[0].auxiliary_model.lm_head))
 
     return server, client_list, test_loader
 
