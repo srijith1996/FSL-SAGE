@@ -164,10 +164,13 @@ def get_auxlist_memory_consumption(aux_list):
         if isinstance(el, torch.Tensor):
             size += el.numel() * el.element_size()
         elif isinstance(el, torch.Size):
-            size += el.numel() * sys.getsizeof(el[0])
+            size += len(el) * 8
         elif isinstance(el, (list, tuple)):
             size += get_auxlist_memory_consumption(el)
+        elif el is None:
+            size += 0
         else:
+            print(f"Warning dont know how to compute size of {type(el)}")
             size += sys.getsizeof(el)
     return size
 
