@@ -14,9 +14,13 @@ from src.utils import plot_util as pu
 def setup(color_scheme=None):
     # maptlotlib setup
     pu.figure_setup()
+    #color_wheel = [
+    #    "#4E79A7FF", "#F28E2BFF", "#E15759FF", "#76B7B2FF", "#59A14FFF",
+    #    "#EDC948FF", "#B07AA1FF", "#FF9DA7FF", "#9C755FFF", "#BAB0ACFF"
+    #]
     color_wheel = [
-        "#4E79A7FF", "#F28E2BFF", "#E15759FF", "#76B7B2FF", "#59A14FFF",
-        "#EDC948FF", "#B07AA1FF", "#FF9DA7FF", "#9C755FFF", "#BAB0ACFF"
+        "#446A99FF", "#D37A2FFF", "#C1494CFF", "#679E96FF", "#4F8A45FF",
+        "#D6B73FFF", "#9A6991FF", "#E78C97FF", "#84674AFF", "#A09C95FF"
     ]
     new_colors = []
 
@@ -32,7 +36,15 @@ def setup(color_scheme=None):
     else:
         new_colors = color_wheel
 
-    mpl.rcParams['axes.prop_cycle'] = mpl.cycler(color=new_colors)
+    markers = ['.', 'p', '*', 'd', 'x', 's', '+', 'P', '2', 'H']
+    linestyles = [
+        'dotted', 'dashed', 'dashdot', (0, (3, 5, 1, 5, 1, 5)), 'solid',
+        (0, (1, 10)), (0, (5, 10)), (0, (5, 1)), (0, (3, 10, 1, 10, 1, 10)),
+        (0, (3, 5, 1, 5))
+    ]
+
+    mpl.rcParams['axes.prop_cycle'] = mpl.cycler(color=new_colors) + \
+        mpl.cycler(marker=markers)
 
 # -----------------------------------------------------------------------------
 def get_json_file(path):
@@ -78,39 +90,51 @@ def accuracy_plot(
         handles = []
         plot_colors = []
         metric_vals = []
+        curves = []
+        x_limits = []
         for i, (k, v) in enumerate(save_dicts.items()):
             if i in test_ids:
-                x_lim = len(v[metric])
+                x_lim = len(v[0][metric])
+                x_limits.append(x_lim)
 
                 if x_axis_rnds_lim is not None:
                     x_lim = min(x_axis_rnds_lim, x_lim)
 
-                x_ = [c_load / (1024 ** 3) for c_load in v['comm_load']][:x_lim] \
+                v_ = v[0] if isinstance(v, list) else v
+                x_ = [c_load / (1024 ** 3) for c_load in v_['comm_load']][:x_lim] \
                     if x_comm_load else np.arange(0, x_lim)
 
                 #label = k if legend != 'names_only' else None
-                h, = ax.plot(x_, v[metric][:x_lim], lw=pu.plot_lw())
+                plt_y = v[metric][:x_lim] if not isinstance(v, list) \
+                    else np.mean(np.array([v_[metric] for v_ in v])[:, :x_lim], axis=0)
+                curves.append(plt_y)
+
+                h, = ax.plot(
+                    x_, plt_y, lw=pu.plot_lw()*0.8,
+                    markevery=(i/len(save_dicts.keys()) * 0.2, 0.2),
+                    markersize=4
+                )
                 plot_colors.append(h.get_color())
                 key_name_only = k[:k.index('(')].strip() if '(' in k else k
 
                 if key_name_only not in key_names:
                     key_names.append(key_name_only)
                     handles.append(h)
-                    metric_vals.append(np.max(v[metric][:x_lim]))
+                    metric_vals.append(np.max(plt_y))
 
         if metric == 'test_acc' and centralized_level is not None:
-            print(f"here {centralized_level}")
+            #print(f"here {centralized_level}")
             xlims = ax.get_xlim()
-            print(xlims, [centralized_level]*2)
+            #print(xlims, [centralized_level]*2)
             ax.plot(
                 xlims, [centralized_level]*2, color='blue', linestyle='dashed',
-                linewidth=1.0, alpha=0.8
+                linewidth=1.0, alpha=0.8, marker=''
             )
             ax.set_xlim(xlims)
 
         # plot horizontal and vertical lines indicating where each algorithm
         # attains chosen accuracy
-        if mark_at_metric is not None:
+        if metric == 'test_acc' and x_comm_load and mark_at_metric is not None:
             assert len(mark_at_metric) == len(metrics), \
                 "`mark_at_metric` should have same length as metrics"
 
@@ -121,7 +145,7 @@ def accuracy_plot(
             ylims = ax.get_ylim()
             ax.plot(
                 xlims, [mark_at_metric[n]]*2, linestyle='dashed', color='gray',
-                linewidth=1.0, alpha=0.8
+                linewidth=pu.plot_lw() * 0.8, marker=''
             )
 
             existing_pts = []
@@ -129,35 +153,37 @@ def accuracy_plot(
                 if not i in test_ids:
                     continue
 
-                metric_arr = np.array(v[metric][:x_lim])
+                metric_arr = np.array(curves[i][:x_limits[i]])
                 cond = (metric_arr <= mark_at_metric[n]) if metric_minimize[n] \
                     else (metric_arr >= mark_at_metric[n])
-                mark_rnd_alg = np.argwhere(cond)[0][0]
+                mark_rnd_alg = np.argwhere(cond)[0][0] if np.any(cond) else None
                 
-                x_alg = v['comm_load'][mark_rnd_alg] / (1024**3) \
-                    if x_comm_load else mark_rnd_alg
+                if mark_rnd_alg is not None:
+                    v_ = v[0] if isinstance(v, list) else v
+                    x_alg = v_['comm_load'][mark_rnd_alg] / (1024**3) \
+                        if x_comm_load else mark_rnd_alg
                 
-                # get 
-                ax.plot(
-                    [x_alg]*2, [ylims[0], mark_at_metric[n]],
-                    color=plot_colors[i], linestyle='dashed', linewidth=1.0,
-                    alpha=0.8
-                )
-
-                curr_pt = (x_alg + 1, mark_at_metric[n] - 0.2)
-                skip = False
-                for pt in existing_pts:
-                    if np.abs(curr_pt[0] - pt[0]) <= 3.0:
-                        skip = True
-
-                if not skip:
-                    ax.text(
-                        curr_pt[0], curr_pt[1],
-                        f'{x_alg:.2f}GB' if x_comm_load else f'{x_alg:d}',
-                        color=plot_colors[i], rotation=90, size=6, alpha=1.0,
-                        weight='bold'
+                    # get 
+                    ax.plot(
+                        [x_alg]*2, [ylims[0], mark_at_metric[n]],
+                        color=plot_colors[i], linestyle='dashed', linewidth=1.0,
+                        marker=''
                     )
-                    existing_pts.append(curr_pt)
+
+                    curr_pt = (x_alg + 1, mark_at_metric[n] - 0.3)
+                    skip = False
+                    for pt in existing_pts:
+                        if np.abs(curr_pt[0] - pt[0]) <= 3.0:
+                            skip = True
+
+                    if not skip:
+                        ax.text(
+                            curr_pt[0], curr_pt[1],
+                            f'{x_alg:.2f}GB' if x_comm_load else f'{x_alg:d}',
+                            color=plot_colors[i], rotation=90, size=6, alpha=1.0,
+                            weight='bold'
+                        )
+                        existing_pts.append(curr_pt)
 
             # restore original plot limits
             ax.set_xlim(xlims)
@@ -177,7 +203,34 @@ def accuracy_plot(
             idx = np.flip(np.argsort(metric_vals))
             handles = np.array(handles)[idx]
             key_names = np.array(key_names)[idx]
-            ax.legend(handles, key_names, loc='lower right', fontsize=10)
+
+            if x_comm_load and metric == 'test_acc':
+                arrow_locs = [
+                    (20, 0.835), (80, 0.83), (110, 0.84), (130, 0.82), (150, 0.815)
+                ]
+                label_locs = [
+                    (30, 0.71), (80, 0.71), (120, 0.67), (140, 0.63), (160, 0.57)
+                ]
+                #arrow_locs = [
+                #    (20, 0.535), (80, 0.513), (110, 0.5), (135, 0.47), (160, 0.46)
+                #]
+                #label_locs = [
+                #    (30, 0.41), (80, 0.41), (120, 0.37), (140, 0.33), (160, 0.29)
+                #]
+                arrow_coords = {name: loc for name, loc in zip(key_names, arrow_locs)}
+                label_pos = {name: loc for name, loc in zip(key_names, label_locs)}
+                for i, (label, position) in enumerate(label_pos.items()):
+                    ax.annotate(
+                        label, xy=arrow_coords[label], xytext=position,
+                        bbox=dict(facecolor='white', edgecolor='white', boxstyle='round'),
+                        arrowprops=dict(
+                            edgecolor='black', facecolor='black',
+                            arrowstyle="->", linewidth=1.0
+                        ), fontsize=7, fontweight='bold', color=plot_colors[idx[i]],
+                    )
+            else:
+                ax.legend(handles, key_names, fontsize=8)
+
         ax.grid(
             True, which='both', axis='both', linestyle='dotted', linewidth=0.5,
             color='gray', alpha=0.5
@@ -594,12 +647,26 @@ def misc_exps(config):
 def make_table(exp_name, exp, results, choose_fn=lambda x: -1, suffix='final'):
     table = PrettyTable()
     table.field_names = ['', 'Acc', 'load']
+
+    def get_entries(v):
+        if isinstance(v, list):
+            acc_mat = np.array([v_['test_acc'] for v_ in v])
+            acc_mean = np.mean(acc_mat, axis=0)
+            acc_std = np.std(acc_mat, axis=0)
+            idx = choose_fn(acc_mean)
+            comm_load = v[0]['comm_load'][idx] / (1024**3)
+            acc = acc_mean[idx] * 100.0
+        else:
+            idx = choose_fn(acc_mean)
+            comm_load = v['comm_load'][idx] / (1024**3)
+            acc = v['test_acc'][idx] * 100.0
+        return acc, comm_load
+
     for i, (k, v) in enumerate(results.items()):
         if i in exp['test_ids']:
-            idx = choose_fn(v['test_acc'])
-            load = v['comm_load'][idx] / (1024**3)
-            acc = v['test_acc'][idx] * 100.0
+            acc, load = get_entries(v)
             table.add_row([k, f'{acc:.2f}', f'{load:.2f}'])
+
     print(table)
     os.makedirs(exp_name, exist_ok=True)
     with open(os.path.join(exp_name, f'table_{suffix}.txt'), 'w') as f:
@@ -628,11 +695,19 @@ def main():
             setup(color_scheme=exp['colorscheme'])
 
         print(f"\033[92mPlotting for {exp["title"]}\033[0m")
-        results = {
-            k : get_json_file(
-                get_path(config, exp, k, v)
-            ) for k, v in exp['save_locs'].items()
-        }
+        results = {}
+        for k, v in exp['save_locs'].items():
+            if isinstance(v, list):
+                results[k] = [get_json_file(
+                    get_path(config, exp, k, v_)) for v_ in v
+                ]
+            else:
+                results[k] = get_json_file(get_path(config, exp, k, v))
+        #results = {
+        #    k : get_json_file(
+        #        get_path(config, exp, k, v)
+        #    ) for k, v in exp['save_locs'].items()
+        #}
         #print(results.keys())
 
         # create directory for plot

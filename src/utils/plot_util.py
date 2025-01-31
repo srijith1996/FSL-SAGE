@@ -50,12 +50,12 @@ def axis_lw():
 def plot_lw():
     """Line width of the plotted curves
     """
-    return 1.5
+    return 1.0
 
 
 def figure_setup():
     """Set all the sizes to the correct values and use
-    tex fonts for all texts.
+    tex fonts for all textsk
     """
     params = {'text.usetex': True,
               'figure.dpi': 200,
