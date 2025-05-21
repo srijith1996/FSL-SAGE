@@ -16,6 +16,7 @@ seed   : 200
 device : cuda
 use_64bit: false
 num_workers : 0
+project : fsl_sage
 
 rounds      : 200
 num_clients : 10

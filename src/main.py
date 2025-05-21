@@ -129,6 +129,10 @@ def setup_server_and_clients(
             )
             c.auxiliary_model.to(global_torch_device)
 
+    print("--" * 10)
+    print("AUXILARY MODEL TYPE IS: ", type(client_list[0].auxiliary_model))
+    print("--" * 10)
+
     # compute sizes of different models
     mod_sizes, param_counts = utils.compute_model_size(
         client_list[0].model, server.model, client_list[0].auxiliary_model
@@ -153,8 +157,8 @@ def setup_server_and_clients(
 )
 def main(cfg: DictConfig):
 
-    #print("##" * 10 + " CFG FILE IS: " + "##" * 10)
-    #print(OmegaConf.to_yaml(cfg))
+    # print("##" * 10 + " CFG FILE IS: " + "##" * 10)
+    # print(OmegaConf.to_yaml(cfg))
 
     # wandb setup
     if cfg.save:
@@ -168,7 +172,7 @@ def main(cfg: DictConfig):
         wandb_run_name += datetime.now().strftime(r'_%y%m%d_%H%M%S')
 
         wandb.init(
-            project="fsl-sage", group=cfg.dataset.name,
+            project=cfg.project, group=cfg.dataset.name,
             name=wandb_run_name,
             config={k: v for k, v in cfg.items() if not isinstance(v, (list,tuple))}
         )
