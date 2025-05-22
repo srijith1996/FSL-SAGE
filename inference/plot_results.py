@@ -94,7 +94,10 @@ def accuracy_plot(
         x_limits = []
         for i, (k, v) in enumerate(save_dicts.items()):
             if i in test_ids:
-                x_lim = len(v[0][metric])
+                # print("--" * 10)
+                # print(v)
+                # print("--" * 10)
+                x_lim = len(v[metric])
                 x_limits.append(x_lim)
 
                 if x_axis_rnds_lim is not None:

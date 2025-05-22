@@ -130,6 +130,8 @@ def setup_server_and_clients(
             c.auxiliary_model.to(global_torch_device)
 
     print("--" * 10)
+    print("ALGORITHM NAME IS: ", cfg.algorithm.name)
+    print("AUXILARY MODEL NAME IS: ", cfg.model.auxiliary.name)
     print("AUXILARY MODEL TYPE IS: ", type(client_list[0].auxiliary_model))
     print("--" * 10)
 
@@ -163,7 +165,7 @@ def main(cfg: DictConfig):
     # wandb setup
     if cfg.save:
         wandb.login()
-        wandb_run_name = f'{cfg.algorithm.name}_{cfg.model.name}_{cfg.dataset.name}'
+        wandb_run_name = f'{cfg.algorithm.name}_{cfg.model.name}_{cfg.model.auxiliary.name}_{cfg.dataset.name}'
         if cfg.dataset.distribution in ['iid', 'noniid']:
             wandb_run_name += f'_{cfg.dataset.distribution}'
         else:

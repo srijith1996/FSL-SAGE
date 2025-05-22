@@ -431,7 +431,7 @@ def resnet18_sl_aux(server, layers=None, in_planes: int = 128,
     )
 
 # ------------------------------------------------------------------------------
-@register_auxiliary_model("resnet18_linear", disable_check=True)
+@register_auxiliary_model("resnet18-linear", disable_check=True)
 def resnet18_sl_aux_linear(server, layers=None, in_planes: int = 128,
     weights: Optional[Any] = None, progress: bool = True, num_classes: int = 10,
     device='cpu', **kwargs: Any
@@ -463,7 +463,7 @@ def resnet18_sl_aux_linear(server, layers=None, in_planes: int = 128,
 
 # ------------------------------------------------------------------------------
 
-@register_auxiliary_model("resnet18_half", disable_check=True)
+@register_auxiliary_model("resnet18-half", disable_check=True)
 def resnet18_sl_aux_half(server, layers=None, in_planes: int = 128,
     weights: Optional[Any] = None, progress: bool = True, num_classes: int = 10,
     device='cpu', **kwargs: Any
@@ -497,7 +497,7 @@ def resnet18_sl_aux_half(server, layers=None, in_planes: int = 128,
 
 # ------------------------------------------------------------------------------
 
-@register_auxiliary_model("resnet18_full", disable_check=True)
+@register_auxiliary_model("resnet18-full", disable_check=True)
 def resnet18_sl_full(server, layers=None, in_planes: int = 128,
     weights: Optional[Any] = None, progress: bool = True, num_classes: int = 10,
     device='cpu', **kwargs: Any

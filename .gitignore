@@ -1,5 +1,6 @@
 # special folders
 saves/*
+saves_backup/*
 datas/*
 backup/*
 results/*
@@ -13,6 +14,7 @@ save_temp
 data/
 datas/
 wandb/
+src/multirun
 
 # output files
 *.pyc
