@@ -382,7 +382,7 @@ def metrics_vs_dirichlet_alpha(
 
         handles = []
         for x_, y_ in zip(x_axes, metric_vals):
-            h, = ax.semilogx(x_, y_, lw=pu.plot_lw(), marker='o')
+            h, = ax.semilogx(x_, y_, lw=pu.plot_lw())#, marker='o')
             handles.append(h)
         
         ax.set_axisbelow(True)
