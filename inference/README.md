@@ -117,14 +117,14 @@ The following experiment `type`s are supported currently:
     Dirichet distribution to test for robustness of the method to data
     heterogeneity.  The resulting plot would look like the following:
     <div align="center">
-    <img src="../img/test_acc_vs_dirichlet_alpha.png" alt="Example Dirichlet $\alpha$ plot"/>
+    <img src="../img/test_acc_vs_dirichlet_alpha.png" alt="Example Dirichlet $\alpha$ plot" height="300px"/>
     </div>
 
 
  - `metric_comm_scatter` : Plots a scatter plot with communication load on the
     x-axis and test accuracy on the y-axis.  The resulting plot would look like the following:
     <div align="center">
-    <img src="../img/test_acc_vs_commload_scatter.png" alt="Example Accuracy vs. Communication Load scatter plot"/>
+    <img src="../img/test_acc_vs_commload_scatter.png" alt="Example Accuracy vs. Communication Load scatter plot" height="300px"/>
     </div>
 
 The specification of `save_locs` for `dirichlet_alpha` and `metric_comm_scatter`
@@ -132,5 +132,5 @@ is the same as in the example above.  If the `type` property is not specified,
 the default accuracy vs. communication load or rounds is plotted and would look
 like the following:
 <div align="center">
-<img src="../img/test_acc_comm_load.png" alt="Example accuracy vs. communication load/rounds plot"/>
+<img src="../img/test_acc_comm_load.png" alt="Example accuracy vs. communication load/rounds plot" height="300px"/>
 </div>
