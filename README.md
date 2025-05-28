@@ -1,6 +1,6 @@
-# FSL-SAGE: Federated Split Learning via Smashed Activation Gradient Estimation
+## FSL-SAGE: Accelerating Federated Split Learning via Smashed Activation Gradient Estimation
 
-## Introduction
+### Introduction
 Our Federated Split Learning (FSL) algorithm cuts down on communication
 overheads in traditional Split Learning methods by directly estimating
 server-returned gradients at each client using auxiliary models.  The auxiliary
@@ -13,7 +13,7 @@ The algorithm is summarized in the following schematic:
 <img src="fsl_sage.png" alt="FSL-SAGE schematic">
 </div>
 
-## Requirements
+### Requirements
 The project requirements can be simply installed using the environment config
 file [`conda_env.yaml`](conda_env.yaml) as follows:
 ```python
@@ -26,7 +26,7 @@ conda activate sage
 ```
 and all dependency requirements should be met.
 
-## Configuration 
+### Configuration
 This project is powered by [Hydra](https://hydra.cc/docs/intro/), which allows
 hierarchical configurations and easy running of multiple ML experiments.
 The config files for hydra are located in the folder
@@ -36,13 +36,13 @@ There is a high degree of customizability here; datasets, models and FL
 algorithms can be plugged in using configs.  Please check out our
 [contributing readme](CONTRIBUTING.md) for more details.
 
-## Datasets
+### Datasets
 Currently datasets are read and imported from the `datas` folder in the root of
 the repository.  You can simply create a folder for the repository and download
 the dataset there.  After performing the necessary preprocessing, simply
 use/extend the `get_dataset()` function in [`datasets/__init__.py`](src/datasets/__init__.py)
 
-## Training 
+### Training
 To train FSL-SAGE with defaults from
 [`config.yaml`](src/hydra_config/config.yaml), you can simply run
 ```bash
@@ -139,15 +139,19 @@ For `noniid_dirichlet` you can specify the value of `alpha` using the key
 \
 We also support multiruns in parallel using the
 [hydra-joblib-launcher](https://hydra.cc/docs/plugins/joblib_launcher/)
-Thus, it is possible to run multiple experiments for different combinations of hyperparams, models, datasets or algorithms.
+Thus, it is possible to run multiple experiments for different combinations of
+hyperparams, models, datasets or algorithms given sufficient GPU memory.
 ```bash
 python main.py -m model=resnet18,simple_conv algorithm=fed_avg,sl_single_server,sl_multi_server,cse_fsl,fsl_sage
 ```
 The above would create parallel jobs that would run main.py on all combinations
 of specified options.
+The number of jobs can be controlled by modifying the `hydra.launcher.n_jobs`
+option in [`config.yaml`](./src/hydra_config/config.yaml) or by specifying
+`hydra.launcher.n_jobs=<jobs>` as an option to the script.
 
-## Inference Plots
-Please check out the functions used in the
+### Inference Plots
+Please check out the [readme](./inference/README.md), the functions used in the
 [`plot_results.py`](./inference/plot_results.py) and the configs in
 [`exp_configs.yaml`](./inference/exp_config.yaml) on how to generate the plots
 for accuracy, communication load, etc.
