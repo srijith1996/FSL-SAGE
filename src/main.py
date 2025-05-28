@@ -201,22 +201,28 @@ def main(cfg: DictConfig):
     results = run_fl_algorithm(
         cfg, server, client_list, test_loader, checkpointer,
         global_torch_device,
-        logger_fn=wandb.log if cfg.save else __dummy_fn
+        logger_fn=wandb.log if cfg.save else __dummy_fn,
+        warm_start=cfg.warm_start if 'warm_start' in cfg.keys() else False
     )
 
     # end wandb run
     wandb.finish()
 
+    # print compute times in this run
+    logging.info("Summary of net compute times :-")
+    for k, v in results.avg_compute_times.items():
+        logging.info(f" > {k:>20s} - {v:.2f}s")
+
     # save all results
-    train_metrics = {}
-    for met in results.train_metrics:
-        train_metrics.update(met)
+    train_metrics = {f'client_{i}': tr_met for i, tr_met in
+                     enumerate(results.train_metrics)}
 
     save_res = {
         'test_loss' : results.loss,
         'test_acc'  : results.accuracy,
         'comm_load' : results.comm_load,
-        **train_metrics
+        **train_metrics,
+        **results.avg_compute_times
     }
 
     # save models and results

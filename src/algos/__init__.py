@@ -1,6 +1,7 @@
 # ------------------------------------------------------------------------------
 from abc import ABC, abstractmethod
 from typing import Dict, List, Callable
+import time
 import os, importlib
 import logging, copy
 from dataclasses import dataclass
@@ -106,6 +107,8 @@ class FLAlgorithm(ABC):
         self.special_models_eval_mode()
 
     def aggregate_clients(self):
+        ret_dict = dict()
+        t0 = time.time()
         self.aggregated_client = aggregate_models(
             [c.model for c in self.clients], self.agg_factor, self.device
         )
@@ -114,6 +117,9 @@ class FLAlgorithm(ABC):
         for c in self.clients:
             c.model.load_state_dict(agg_weights)
             self.comm_load += 2 * calculate_load(self.aggregated_client)
+
+        ret_dict['client_agg_compute_time'] = time.time() - t0
+        return ret_dict
 
     def aggregate(self):
         return self.aggregate_clients()
@@ -169,27 +175,69 @@ for file in os.listdir(os.path.dirname(__file__)):
 # ------------------------------------------------------------------------------
 @dataclass
 class FLResults():
-    server      : Server   
-    client_list : List[Client]
-    loss        : List[float]
-    accuracy    : List[float]
-    train_metrics : Dict[str, List]
-    comm_load   : List[float]
+    server              : Server
+    client_list         : List[Client]
+    loss                : List[float]
+    accuracy            : List[float]
+    train_metrics       : List[Dict[str, List]]
+    aggregation_metrics : Dict[str, List]
+    comm_load           : List[float]
+    avg_compute_times   : Dict[str, float]
 
 # ------------------------------------------------------------------------------
-def __print_aggregate_metrics(client_metrics_dict, prefix='tr.'):
+def __aggregate_metrics_dict(
+    client_metrics_dict, reduction=np.mean, keys='', excl_keys=None
+):
+    '''Given a list of dicts, each dict comprising of metric key-value pairs,
+    where each value is a list of metrics values, one for each round of FL,
+    compute the reduction of the values specified by `reduction` for keys
+    containing the substring `keys` and not containing the substring
+    `excl_keys`, and create a new dictionary that transforms a list of key ->
+    value mappings to a dictionary of key -> value-list.
+    '''
+    def key_condition(k, inc_k, exc_k):
+        if exc_k:
+            return (inc_k in k and exc_k not in k)
+        else:
+            return (inc_k in k)
+
     agg_metrics_dict = {
-        k: [np.mean(v)] for k, v in client_metrics_dict[0].items()
+        k: [reduction(v)] for k, v in client_metrics_dict[0].items()
+        if key_condition(k, keys, excl_keys)
     }
     for met_dict in client_metrics_dict[1:]:
-        [agg_metrics_dict[k].append(np.mean(v)) for k, v in met_dict.items()]
+        [agg_metrics_dict[k].append(reduction(v)) for k, v in met_dict.items()
+         if key_condition(k, keys, excl_keys)]
 
+    return agg_metrics_dict
+
+# ------------------------------------------------------------------------------
+def __print_aggregate_metrics(
+    client_metrics_dict, aggregation_metrics, prefix='tr.'
+):
+    agg_metrics_dict = __aggregate_metrics_dict(
+        client_metrics_dict, reduction=lambda x: x[-1]
+    )
     print_str = ''
     for i, (k, v) in enumerate(agg_metrics_dict.items()):
-        print_str += f'{prefix} {k}: {np.mean(v):.2f}' if i == 0 \
-            else f', {prefix} {k}: {np.mean(v):.2f}'
+        print_str += f'avg {prefix} {k}: {np.mean(v):.2f}' if i == 0 \
+            else f', avg {prefix} {k}: {np.mean(v):.2f}'
+
+    for k, v in aggregation_metrics.items():
+        print_str += f', {prefix} {k}: {v[-1]:.2f}'
 
     return print_str
+
+# ------------------------------------------------------------------------------
+def __add_aggregated_compute_times(client_metrics_dict, aggregation_metrics):
+    # reduce and pack model_compute_times
+    agg_metrics_dict = __aggregate_metrics_dict(
+        client_metrics_dict, reduction=np.sum, keys='model_compute_time'
+    )
+    # update keys with agg_compute_times
+    agg_metrics_dict.update({k: np.sum(v) for k, v in aggregation_metrics.items()})
+    new_compute_times = {k: np.mean(v) for k, v in agg_metrics_dict.items()}
+    return new_compute_times
 
 # ------------------------------------------------------------------------------
 def take_lr_step(obj):
@@ -215,9 +263,9 @@ def log_and_step_lr_per_round(alg, alg_name):
 def log_and_step_lr_per_client(i, alg, alg_name):
 
     # for client model
-    lr_dict = {"client_lr" : take_lr_step(alg.clients[i])}
+    lr_dict = {f"client_{i}_lr" : take_lr_step(alg.clients[i])}
     log_dict = {}
-    log_dict[f'Clients/client_{i}/cl_model_lr'] = lr_dict['client_lr']
+    log_dict[f'Clients/client_{i}/cl_model_lr'] = lr_dict[f'client_{i}_lr']
 
     # for server model(s) is multi_server
     if alg_name != 'fed_avg':
@@ -229,12 +277,11 @@ def log_and_step_lr_per_client(i, alg, alg_name):
 
     # for auxiliary models. For fsl_sage, the optimization happens within the
     # align() method.
-    if alg_name == 'cse_fsl':
+    if alg_name == 'cse_fsl' or alg_name == 'fsl_sage':
         lr_dict['aux_lr'] = take_lr_step(alg.clients[i].auxiliary_model)
 
     # log auxiliary model learning rate for fsl algorithms
-    if alg_name == 'cse_fsl' or \
-        alg_name =='fsl_sage':
+    if alg_name == 'cse_fsl' or alg_name =='fsl_sage':
         log_dict.update({
             f'Clients/client_{i}/aux_model/aux_model_lr': \
                 alg.clients[i].auxiliary_model.optimizer.param_groups[0]['lr']
@@ -243,14 +290,19 @@ def log_and_step_lr_per_client(i, alg, alg_name):
     return lr_dict, log_dict
 
 # ------------------------------------------------------------------------------
-def run_fl_algorithm(
-    cfg: DictConfig,
+def _run_fl_algorithm(
+    cfg:DictConfig,
     server: Server,
     clients: List[Client],
     test_loader: DataLoader,
     checkpointer: Checkpointer,
     torch_device,
-    logger_fn: Callable
+    logger_fn: Callable,
+    test_loss=None,
+    test_acc=None,
+    train_metrics=None,
+    aggregation_metrics=None,
+    comm_load=None,
 ) -> FLResults:
 
     # get algorithm
@@ -264,10 +316,13 @@ def run_fl_algorithm(
         if cfg.comm_threshold_mb is None:
             cfg.comm_threshold_mb = np.inf
 
-    comm_load = []
-    test_loss = []
-    test_acc = []
-    train_metrics = [{} for _ in range(cfg.num_clients)]
+    if comm_load is None: comm_load = []
+    if test_loss is None: test_loss = []
+    if test_acc is None: test_acc = []
+    if train_metrics is None:
+        train_metrics = [{} for _ in range(cfg.num_clients)]
+    if aggregation_metrics is None:
+        aggregation_metrics = {}
     
     # main loop
     with logging_redirect_tqdm():
@@ -311,7 +366,8 @@ def run_fl_algorithm(
                                     tr_metrics.items()]
 
                     # compute mean of metrics
-                    tr_mets = {k: np.mean(v) for k, v in tr_mets.items()}
+                    tr_mets = {k: np.mean(v) if 'model_compute_time' not in k
+                               else np.sum(v) for k, v in tr_mets.items()}
                     if t == 0:
                         train_metrics[i] = {
                             k: [v] for k, v in tr_mets.items()
@@ -330,10 +386,19 @@ def run_fl_algorithm(
                     log_dict.update(log_dict_)
                     pbar.set_postfix(**tr_mets, **lr_dict)
 
-            tr_str = __print_aggregate_metrics(train_metrics)
-
-            alg.aggregate()
+            # aggregate required models
+            agg_metrics = alg.aggregate()
             comm_load.append(alg.comm_load)
+            if t == 0:
+                for k, v in agg_metrics.items():
+                    aggregation_metrics[k] = [v]
+            else:
+                [aggregation_metrics[k].append(v) for k, v in
+                agg_metrics.items()]
+
+            tr_str = __print_aggregate_metrics(
+                train_metrics, aggregation_metrics, prefix='tr'
+            )
 
             # set models to eval mode and evaluate
             alg.eval_mode()
@@ -356,7 +421,7 @@ def run_fl_algorithm(
             logging.info(
                 f' > Round {t}, ' + tr_str +
                 f', ts. loss: {loss_:.2f}, ts. acc: {100. * acc_:.2f}%' +
-                f', comm: {(alg.comm_load / (1024**3)):.2f} GiB.'
+                f', comm: {(alg.comm_load / (1024**3)):.2f} GiB.',
             )
             logger_fn(log_dict, step=t)
 
@@ -371,9 +436,58 @@ def run_fl_algorithm(
                 logging.info(f"Communication budget reached/exceeded @ {t:d} rounds!")
                 break
 
+    avg_compute_times = __add_aggregated_compute_times(
+        train_metrics, aggregation_metrics
+    )
+
     return FLResults(
-        alg.server, alg.clients, test_loss, test_acc,
-        train_metrics, comm_load
+        alg.server, alg.clients, test_loss, test_acc, train_metrics,
+        aggregation_metrics, comm_load, avg_compute_times
+    )
+
+# ------------------------------------------------------------------------------
+def run_fl_algorithm(
+    cfg:DictConfig,
+    server: Server,
+    clients: List[Client],
+    test_loader: DataLoader,
+    checkpointer: Checkpointer,
+    torch_device,
+    logger_fn: Callable,
+    warm_start=False
+):
+
+    if cfg.algorithm.name == 'fsl_sage' and warm_start:
+        ws_cfg = copy.deepcopy(cfg)
+        with open_dict(ws_cfg):
+            ws_cfg.rounds = 1
+            ws_cfg.algorithm.name = 'cse_fsl'
+            if 'server_update_interval' not in ws_cfg.algorithm.keys():
+                ws_cfg.algorithm.server_update_interval = 5
+
+        logging.info("Warm-starting auxiliary model with CSE-FSL")
+        results = _run_fl_algorithm(
+            ws_cfg, server, clients, test_loader, checkpointer, torch_device,
+            logger_fn
+        )
+        server = results.server
+        clients = results.client_list
+        test_loss = results.loss
+        test_acc = results.accuracy
+        train_metrics = results.train_metrics
+        aggregation_metrics = results.aggregation_metrics
+        comm_load = results.comm_load
+    else:
+        test_loss = None
+        test_acc = None
+        train_metrics = None
+        aggregation_metrics = None
+        comm_load = None
+
+    return _run_fl_algorithm(
+        cfg, server, clients, test_loader, checkpointer, torch_device,
+        logger_fn, test_loss, test_acc, train_metrics, aggregation_metrics,
+        comm_load
     )
 
 # ------------------------------------------------------------------------------
