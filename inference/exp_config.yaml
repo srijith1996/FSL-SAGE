@@ -1,6 +1,6 @@
-prefix_dir : ../../saves
-plots_dir  : ../../plots
-plots      : True 
+prefix_dir : ../saves
+plots_dir  : ../plots
+plots      : True
 table      : True
 
 name_folder:
