@@ -10,7 +10,7 @@ client's local input.
 
 The algorithm is summarized in the following schematic:
 <div align="center">
-<img src="fsl_sage.png" alt="FSL-SAGE schematic">
+<img src="img/fsl_sage.png" alt="FSL-SAGE schematic" style="width:600px"/>
 </div>
 
 ### Requirements
