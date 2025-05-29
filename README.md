@@ -155,3 +155,19 @@ Please check out the [readme](./inference/README.md), the functions used in the
 [`plot_results.py`](./inference/plot_results.py) and the configs in
 [`exp_configs.yaml`](./inference/exp_config.yaml) on how to generate the plots
 for accuracy, communication load, etc.
+
+### Note on source code for LLMs
+This code has been extended to allow for LLMs and a basic setup on natural
+language generation (NLG) using the WebNLG E2E dataset has been tested.
+We use LoRA fine-tuning on the GPT-2 medium model to learn the E2E task.
+The code is available on the
+[`llm`](https://github.com/srijith1996/FSL-SAGE/tree/llm) branch of this
+repository and is built upon the [LoRA](https://github.com/microsoft/LoRA)
+codebase.
+The code currently does not use the
+[PEFT](https://huggingface.co/docs/peft/main/en/index) or
+[Transformers](https://huggingface.co/docs/transformers/index)
+libraries by HuggingFace, since building model splitting on top of those is
+challenging.
+However, contributions to this end on the LLM branch would be welcome.
+_We would like to encourage research on developing automatic model splitters for PyTorch and other popular deep learning frameworks, since these could become increasingly relevant as split learning or federated split learning methods become more popular._
