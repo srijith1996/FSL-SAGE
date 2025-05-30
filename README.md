@@ -1,5 +1,9 @@
 ## FSL-SAGE: Accelerating Federated Split Learning via Smashed Activation Gradient Estimation
 
+[![Static Badge](https://img.shields.io/badge/arXiv-paper-red?logo=arxiv)](https://arxiv.org/abs/2505.23182)
+[![OpenReview](https://img.shields.io/badge/OpenReview-940121?color=red)](https://openreview.net/forum?id=HnwcrtoDd4)
+
+
 ### Introduction
 Our Federated Split Learning (FSL) algorithm cuts down on communication
 overheads in traditional Split Learning methods by directly estimating
@@ -12,6 +16,8 @@ The algorithm is summarized in the following schematic:
 <div align="center">
 <img src="./img/fsl_sage.png" alt="FSL-SAGE schematic" height="500px"/>
 </div>
+
+Please refer to [our paper](https://arxiv.org/pdf/2505.23182) for further details, and consider citing the same if you find this work useful.
 
 ### Requirements
 The project requirements can be simply installed using the environment config

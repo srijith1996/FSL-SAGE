@@ -1,0 +1,39 @@
+cff-version: 1.2.0
+message: If you use this software, please cite the article from preferred-citation.
+authors:
+  - family-names: Nair
+    given-names: Srijith
+  - family-names: Lin 
+    given-names: Michael
+  - family-names: Talebi
+    given-names: Amirreza
+  - family-names: Ju
+    given-names: Peizhong
+  - family-names: Bentley
+    given-names: Elizabeth
+  - family-names: Liu
+    given-names: Liu
+title: 'FSL-SAGE: Accelerating Federated Split Learning via Smashed Activation Gradient Estimation'
+version: 1.0.0
+url: https://arxiv.org/abs/2505.23182
+date-released: '2025-05-30'
+preferred-citation:
+  authors:
+    - family-names: Nair
+      given-names: Srijith
+    - family-names: Lin
+      given-names: Michael
+    - family-names: Talebi
+      given-names: Amirreza
+    - family-names: Ju
+      given-names: Peizhong
+    - family-names: Bentley
+      given-names: Elizabeth
+    - family-names: Liu
+      given-names: Jia
+  title: 'FSL-SAGE: Accelerating Federated Split Learning via Smashed Activation Gradient Estimation'
+  url: https://arxiv.org/abs/2505.23182
+  type: generic
+  year: '2025'
+  conference: {}
+  publisher: {}
