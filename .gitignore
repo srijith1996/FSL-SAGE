@@ -13,6 +13,8 @@ save_temp
 data/
 datas/
 wandb/
+multirun/
+pretrained_models/
 
 # output files
 *.pyc

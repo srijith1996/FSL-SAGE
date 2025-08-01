@@ -32,7 +32,15 @@ def setup(color_scheme=None):
     else:
         new_colors = color_wheel
 
-    mpl.rcParams['axes.prop_cycle'] = mpl.cycler(color=new_colors)
+    markers = ['.', 'p', '*', 'd', 'x', 's', '+', 'P', '2', 'H']
+    linestyles = [
+        'dotted', 'dashed', 'dashdot', (0, (3, 5, 1, 5, 1, 5)), 'solid',
+        (0, (1, 10)), (0, (5, 10)), (0, (5, 1)), (0, (3, 10, 1, 10, 1, 10)),
+        (0, (3, 5, 1, 5))
+    ]
+
+    mpl.rcParams['axes.prop_cycle'] = mpl.cycler(color=new_colors) \
+        + mpl.cycler(marker=markers)
 
 # -----------------------------------------------------------------------------
 def get_json_file(path):

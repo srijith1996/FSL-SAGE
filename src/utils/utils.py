@@ -240,6 +240,12 @@ def count_trainable_params(model: nn.Module):
 def __reduce_dict(module_dict, group_name):
     sub_dict = {}
     for k, v in module_dict.items():
+        if '.' not in k:
+            if k != group_name:
+                continue
+            else:
+                raise Exception(f"specified name, {group_name} is a leaf node.")
+
         gn, rem = k.split('.', 1)
         if gn == group_name:
             sub_dict[rem] = v
@@ -275,19 +281,38 @@ OKGREEN = '\033[92m'
 BOLD = '\033[1m'
 ENDC = '\033[0m'
 
-def pretty(d, color_cond_dict, indent=0, sep='|-- '):
+def pretty(
+    d, color_cond_dict, print_string='', special_chars=True, indent=0,
+    sep='|-- '
+):
+    ret_str = print_string
     for (key, value), color_cond in zip(d.items(), color_cond_dict.values()):
         if isinstance(value, dict):
-            logging.info(sep * indent + BOLD + str(key) + ENDC)
-            pretty(value, color_cond, indent+1)
-        else:
-            if color_cond: print(OKGREEN, end='')
-            logging.info(sep * indent + str(key) + '\t' + str(value))
-            if color_cond: print(ENDC, end='')
+            if special_chars:
+                ret_str += sep * indent + BOLD + str(key) + ENDC
+            else:
+                ret_str += sep * indent + str(key)
 
-def print_model(model):
-    model_dict = get_nested_dict(dict(model.named_parameters()))
-    pretty(
+            ret_str += '\n'
+            ret_str = pretty(
+                value, color_cond, indent=indent+1, print_string=ret_str,
+                special_chars=special_chars
+            )
+        else:
+            if special_chars and color_cond: ret_str += OKGREEN
+            ret_str += sep * indent + str(key) + '\t' + str(value)
+            if special_chars and color_cond: ret_str += ENDC
+            ret_str += '\n'
+
+    return ret_str
+
+def print_model(model, color_print=True):
+    state_dict = model.state_dict() if isinstance(model, torch.nn.Module) \
+        else model
+    model_dict = get_nested_dict(dict(state_dict))
+    print_str = pretty(
         recursive_map(lambda x: list(x.shape), model_dict),
-        recursive_map(lambda x: x.requires_grad, model_dict) 
+        recursive_map(lambda x: x.requires_grad, model_dict),
+        special_chars=color_print
     )
+    return print_str
